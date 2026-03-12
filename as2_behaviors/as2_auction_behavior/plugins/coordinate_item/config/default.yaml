@@ -1,0 +1,7 @@
+auction_behavior:
+  ros__parameters:
+    item_plugin_type: "coordinate_item"
+    state_component:
+      - "self_localization/pose"
+    # AuctionItem.features expected layout: [x, y]
+    # AuctionItem.feature_names expected layout: ["x", "y"]
