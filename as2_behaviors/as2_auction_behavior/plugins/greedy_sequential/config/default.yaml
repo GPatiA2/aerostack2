@@ -1,0 +1,5 @@
+auction_behavior:
+  ros__parameters:
+    plugin_name: "greedy_sequential"
+    # item_plugin_type: set this to the item plugin to use, e.g. "coordinate_item"
+    # state_component: list of state topics needed by the chosen item plugin
