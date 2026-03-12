@@ -1,0 +1,11 @@
+string name
+AuctionItem[] elements
+string type 
+string[] bidders
+---
+string[] winners
+AuctionItem[] elements
+---
+string[] asignees
+AuctionItem[] items
+float64[] amounts
