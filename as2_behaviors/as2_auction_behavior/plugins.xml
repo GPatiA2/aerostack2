@@ -1,0 +1,29 @@
+<class_libraries>
+
+  <library path="greedy_sequential_plugin">
+    <class
+      name="greedy_sequential::Plugin"
+      type="greedy_sequential::Plugin"
+      base_class_type="as2_auction_behavior::AuctionBehaviorPluginBase">
+      <description>
+        Greedy sequential auction plugin. Each agent independently claims the
+        lowest-cost unclaimed task. Claims are broadcast so other agents remove
+        that task from their available pool before their own greedy selection.
+      </description>
+    </class>
+  </library>
+
+  <library path="coordinate_item_plugin">
+    <class
+      name="coordinate_item::Plugin"
+      type="coordinate_item::Plugin"
+      base_class_type="as2_auction_behavior::AuctionItemPluginBase">
+      <description>
+        Auction item representing a 2D target coordinate.
+        Cost = Euclidean distance from the robot's current XY position to the target.
+        AuctionItem.features: [x, y]. Requires state_component: pose.
+      </description>
+    </class>
+  </library>
+
+</class_libraries>

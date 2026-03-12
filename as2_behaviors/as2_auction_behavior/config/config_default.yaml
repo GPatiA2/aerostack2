@@ -1,0 +1,5 @@
+/**:
+  ros__parameters:
+    plugin_name: "greedy_sequential"
+    state_component: 
+      - self_localization/pose
