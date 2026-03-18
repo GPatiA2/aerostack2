@@ -30,6 +30,7 @@ set(PROJECT_DEPENDENCIES
   as2_ca
   auction_msgs
   as2_state_interface
+  as2_kb_interface
 )
 
 # find_package(backward_ros REQUIRED)

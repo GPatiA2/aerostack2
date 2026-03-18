@@ -45,8 +45,10 @@
 #include "as2_ca/ca_gateway_client.hpp"
 #include "as2_behavior/behavior_server.hpp"
 #include "as2_msgs/action/auction.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "as2_auction_behavior/auction_behavior_plugin_base.hpp"
 #include "as2_auction_behavior/auction_item_plugin_base.hpp"
+#include "as2_kb_interface/kb_interface.hpp"
 
 class AuctionBehavior : public as2_behavior::BehaviorServer<as2_msgs::action::Auction>
 {
@@ -79,8 +81,15 @@ private:
   as2_ca::CAGatewayClient client_;
 
   bool started;
+  bool is_participant_{false};
+
+  rclcpp_action::Client<as2_msgs::action::Auction>::SharedPtr self_action_client_;
 
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
+
+  KBInterface kb_interface_;
+
+  void publish_results_to_kb(const ResultT & result);
 
   bool on_activate(std::shared_ptr<const GoalT> goal) override;
   bool on_modify(std::shared_ptr<const GoalT> goal) override;

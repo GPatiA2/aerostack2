@@ -115,6 +115,14 @@ public:
     as2_msgs::msg::Bid new_bid = compute_bid();
 
     // Send new bid to other agents
+    std::string claimed_tasks;
+    for (const auto & name : new_bid.name) {
+      claimed_tasks += "'" + name + "' ";
+    }
+    RCLCPP_INFO(
+      rclcpp::get_logger("AuctionBehaviorPluginBase"),
+      "Sending bid claiming %zu task(s) [%s] to %zu participant(s)",
+      new_bid.name.size(), claimed_tasks.c_str(), participants_.size());
     client_.forward_IA_msg<as2_msgs::msg::Bid>(new_bid, "bid", participants_);
   }
 

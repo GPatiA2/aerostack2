@@ -38,6 +38,7 @@
 
 #include "as2_ca/ca_gateway_client.hpp"
 #include "as2_auction_behavior/auction_behavior.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "as2_msgs/msg/auction_item_array.hpp"
 #include "as2_msgs/msg/bid.hpp"
 #include "as2_msgs/msg/start_auction.hpp"
@@ -45,7 +46,7 @@
 AuctionBehavior::~AuctionBehavior() {}
 
 AuctionBehavior::AuctionBehavior(const rclcpp::NodeOptions & options)
-: BehaviorServer("AuctionBehavior", options), client_(this)
+: BehaviorServer("AuctionBehavior", options), client_(this), kb_interface_(this)
 {
   started = false;
   behavior_name_ = "auction_behavior";
@@ -80,6 +81,10 @@ AuctionBehavior::AuctionBehavior(const rclcpp::NodeOptions & options)
     "as2_auction_behavior", "as2_auction_behavior::AuctionItemPluginBase");
 
   loaded_item_type_ = "";
+
+  self_action_client_ = rclcpp_action::create_client<as2_msgs::action::Auction>(
+    this, "AuctionBehavior");
+
   RCLCPP_INFO(this->get_logger(), "Auction behavior node created!");
 }
 
@@ -89,11 +94,18 @@ void AuctionBehavior::configure()
 // and the plugin functions are virtual and will be resolved at runtime
   RCLCPP_INFO(this->get_logger(), "Registering StartAuction handler...");
   client_.register_module<as2_msgs::msg::StartAuction>(
-    "start_auction",
+    "auction_item_array",
     behavior_name_,
     [this](const as2_msgs::msg::StartAuction & msg,
     const std::string & agent_id) {
-      const as2_msgs::msg::AuctionItemArray elements = msg.items;
+      RCLCPP_INFO(
+        this->get_logger(),
+        "Received StartAuction from auctioneer '%s' with %zu items and %zu participants",
+        agent_id.c_str(), msg.items.list.size(), msg.participants.size());
+
+      // Load plugin and items synchronously so they are ready before any bid arrives.
+      // The self-goal below is async and on_activate may run after the first bid.
+      const as2_msgs::msg::AuctionItemArray & elements = msg.items;
       if (loaded_item_type_ != elements.item_type) {
         try {
           item_plugin_ = item_loader_->createSharedInstance(elements.item_type + "::Plugin");
@@ -108,7 +120,15 @@ void AuctionBehavior::configure()
       }
       auction_plugin_->set_participans(msg.participants);
       auction_plugin_->on_auction_items_received(elements, agent_id);
-      started = true;
+
+      // Send a self-goal to activate the run timer so on_run() ticks for convergence detection.
+      GoalT participant_goal;
+      participant_goal.type     = elements.item_type;
+      participant_goal.elements = elements.list;
+      participant_goal.bidders  = msg.participants;
+
+      is_participant_ = true;
+      self_action_client_->async_send_goal(participant_goal);
     }
   );
 
@@ -118,6 +138,10 @@ void AuctionBehavior::configure()
     behavior_name_,
     [this](const as2_msgs::msg::Bid & msg,
     const std::string & agent_id) {
+      RCLCPP_INFO(
+        this->get_logger(),
+        "Received bid from agent '%s' claiming %zu task(s)",
+        agent_id.c_str(), msg.name.size());
       auction_plugin_->on_bid_received(msg, agent_id);
     }
   );
@@ -128,11 +152,13 @@ void AuctionBehavior::configure()
 }
 bool AuctionBehavior::on_activate(std::shared_ptr<const GoalT> goal)
 {
-  RCLCPP_INFO(this->get_logger(), "Activating auction behavior with type: %s", goal->name.c_str());
-  RCLCPP_INFO(this->get_logger(), "There are %zu bidders in this auction", goal->bidders.size());
+  RCLCPP_INFO(
+    this->get_logger(), "Activating as %s with type '%s', %zu bidders",
+    is_participant_ ? "participant" : "auctioneer", goal->type.c_str(), goal->bidders.size());
+
   std::string item_type = goal->type;
 
-  // Load the item plugin for the auctioneer
+  // Load item plugin (same for both roles)
   if (loaded_item_type_ != item_type) {
     try {
       item_plugin_ = item_loader_->createSharedInstance(item_type + "::Plugin");
@@ -142,38 +168,40 @@ bool AuctionBehavior::on_activate(std::shared_ptr<const GoalT> goal)
       RCLCPP_ERROR(
         this->get_logger(), "Failed to load item plugin '%s': %s",
         item_type.c_str(), e.what());
+      is_participant_ = false;
       return false;
     }
   }
 
-  // Give the plugin the participant list before it computes any bid
-  auction_plugin_->set_participans(goal->bidders);
+  if (!is_participant_) {
+    // Participants already loaded items/participants synchronously in the StartAuction handler.
+    // Auctioneer loads them here, then broadcasts StartAuction and kicks off first bid.
+    auction_plugin_->set_participans(goal->bidders);
+    as2_msgs::msg::AuctionItemArray items_msg;
+    items_msg.list = goal->elements;
+    items_msg.item_type = item_type;
+    auction_plugin_->on_auction_items_received(items_msg, this->get_namespace());
 
-  // Populate the auctioneer's own auction_items_ directly, since the auctioneer
-  // will not receive its own StartAuction broadcast
-  as2_msgs::msg::AuctionItemArray items_msg;
-  items_msg.list = goal->elements;
-  items_msg.item_type = item_type;
-  auction_plugin_->on_auction_items_received(items_msg, this->get_namespace());
-
-  // Send StartAuction to the other bidders only (excluding self to avoid double-loading)
-  as2_msgs::msg::StartAuction start_msg;
-  start_msg.participants = goal->bidders;
-  start_msg.items = items_msg;
-  start_msg.itemtype = item_type;
-  std::vector<std::string> other_bidders;
-  const std::string my_ns = this->get_namespace();
-  for (const auto & b : goal->bidders) {
-    if (b != my_ns) {
-      other_bidders.push_back(b);
+    as2_msgs::msg::StartAuction start_msg;
+    start_msg.participants = goal->bidders;
+    start_msg.items = items_msg;
+    start_msg.itemtype = item_type;
+    std::vector<std::string> other_bidders;
+    const std::string my_ns = this->get_namespace();
+    for (const auto & b : goal->bidders) {
+      if (b != my_ns) {
+        other_bidders.push_back(b);
+      }
     }
+    RCLCPP_INFO(
+      this->get_logger(), "Forwarding StartAuction to %zu other bidders",
+      other_bidders.size());
+    client_.forward_IA_msg<as2_msgs::msg::StartAuction>(
+      start_msg, "auction_item_array", other_bidders);
+    auction_plugin_->on_activate(goal);
   }
-  client_.forward_IA_msg<as2_msgs::msg::StartAuction>(
-    start_msg, "auction_item_array", other_bidders);
 
-  // Kick off the auctioneer's first bid
-  auction_plugin_->on_activate(goal);
-
+  is_participant_ = false;
   goal_ = *goal;
   started = true;
   return true;
@@ -220,6 +248,7 @@ as2_behavior::ExecutionStatus AuctionBehavior::on_run(
   ResultT res = auction_plugin_->get_result();
   result_msg->winners = res.winners;
   result_msg->elements = res.elements;
+  result_ = res;
   started = false;
   return as2_behavior::ExecutionStatus::SUCCESS;
 }
@@ -227,4 +256,30 @@ as2_behavior::ExecutionStatus AuctionBehavior::on_run(
 void AuctionBehavior::on_execution_end(const as2_behavior::ExecutionStatus & state)
 {
   auction_plugin_->on_execution_end();
+  if (state == as2_behavior::ExecutionStatus::SUCCESS) {
+    publish_results_to_kb(result_);
+  }
+}
+
+void AuctionBehavior::publish_results_to_kb(const ResultT & result)
+{
+  for (size_t i = 0; i < result.elements.size(); ++i) {
+    const auto & item = result.elements[i];
+    const std::string & agent_id = result.winners[i];
+    const std::string & id_point = item.name;
+
+    // Find x and y coordinates from the item features
+    std::string x_str, y_str;
+    for (size_t j = 0; j < item.feature_names.size(); ++j) {
+      if (item.feature_names[j] == "x") {
+        x_str = std::to_string(item.features[j]);
+      } else if (item.feature_names[j] == "y") {
+        y_str = std::to_string(item.features[j]);
+      }
+    }
+
+    kb_interface_.add_fact(id_point, "xCoord", x_str);
+    kb_interface_.add_fact(id_point, "yCoord", y_str);
+    kb_interface_.add_fact(id_point, "assignedTo", agent_id);
+  }
 }
