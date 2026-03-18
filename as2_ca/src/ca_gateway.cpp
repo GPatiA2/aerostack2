@@ -49,7 +49,7 @@ CA_Gateway::CA_Gateway(const rclcpp::NodeOptions & options)
   RCLCPP_INFO(this->get_logger(), "Starting CA Gateway Node...");
 
   try {
-    this->declare_parameter("out_messages_topic", "forward_out");
+    this->declare_parameter("out_messages_topic", "gateway_out");
     this->get_parameter("out_messages_topic", out_messages_topic_);
   } catch (const rclcpp::ParameterTypeException & e) {
     RCLCPP_ERROR(this->get_logger(), "Parameter declaration error: %s", e.what());
@@ -147,18 +147,23 @@ void CA_Gateway::forward_local_message(
   ia_msg.data = msg->data;
 
   for (const auto & receiver : receivers) {
+    if (receiver == agent_id_) {
+      RCLCPP_DEBUG(
+        this->get_logger(), "Skipping self-forwarding for agent '%s'", receiver.c_str());
+      continue;
+    }
     auto it = inter_agent_publishers_.find(receiver);
     if (it == inter_agent_publishers_.end()) {
       RCLCPP_WARN(
         this->get_logger(), "No peer publisher found for agent %s. Message dropped.",
         receiver.c_str());
-      return;
+      continue;
     }
     it->second->publish(ia_msg);
 
-    RCLCPP_DEBUG(
-      this->get_logger(), "Forwarded local message to agent %s on topic %s",
-      receiver.c_str(), it->second->get_topic_name());
+    RCLCPP_INFO(
+      this->get_logger(), "Forwarded message of type '%s' from local module to agent '%s' on topic '%s'",
+      ia_msg.type.c_str(), receiver.c_str(), it->second->get_topic_name());
   }
 }
 
@@ -176,9 +181,9 @@ void CA_Gateway::ia_message_callback(
 
     it->second->publish(local_msg);
 
-    RCLCPP_DEBUG(
-      this->get_logger(), "Forwarded ia_message of type %s to local topic %s",
-      type.c_str(), it->second->get_topic_name());
+    RCLCPP_INFO(
+      this->get_logger(), "Received message of type '%s' from agent '%s', forwarded to local topic '%s'",
+      type.c_str(), msg->sender.c_str(), it->second->get_topic_name());
   } else {
     RCLCPP_WARN(
       this->get_logger(), "No local module registered for message type %s. Dropping message.",
