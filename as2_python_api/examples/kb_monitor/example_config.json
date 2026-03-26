@@ -1,0 +1,38 @@
+{
+  "kb_namespace": "kb",
+  "handlers": [
+    {
+      "id": "stuck_handler",
+      "patterns": ["?drone is_stuck true"],
+      "one_shot": false,
+      "models": [],
+      "func": {
+        "path": "/path/to/example_handlers.py",
+        "name": "example_handlers",
+        "func_name": "handle_drone_stuck"
+      }
+    },
+    {
+      "id": "target_found_handler",
+      "patterns": ["?drone has_found ?target"],
+      "one_shot": true,
+      "models": [],
+      "func": {
+        "path": "/path/to/example_handlers.py",
+        "name": "example_handlers",
+        "func_name": "handle_target_found"
+      }
+    },
+    {
+      "id": "mission_complete_handler",
+      "patterns": ["?drone mission_complete true"],
+      "one_shot": true,
+      "models": [],
+      "func": {
+        "path": "/path/to/example_handlers.py",
+        "name": "example_handlers",
+        "func_name": "handle_mission_complete"
+      }
+    }
+  ]
+}

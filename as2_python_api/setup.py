@@ -22,6 +22,7 @@ setup(
     entry_points={
         'console_scripts': [
             'mission_executor = as2_python_api.mission_interpreter.ros2_adapter:main',
+            'kb_monitor = as2_python_api.kb_monitor.launch_kb_monitor:main',
         ],
     },
 )
