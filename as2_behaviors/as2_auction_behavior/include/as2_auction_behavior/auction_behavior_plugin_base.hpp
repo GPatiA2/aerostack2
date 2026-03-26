@@ -70,6 +70,11 @@ public:
       std::vector<std::string>());
 
     client_ = client;
+    namespace_ = node_ptr->get_namespace();
+
+    if (!namespace_.empty() && namespace_[0] == '/') {
+      namespace_ = namespace_.substr(1);
+    }
   }
 
   virtual void on_activate(std::shared_ptr<const GoalT> goal) = 0;
@@ -157,6 +162,7 @@ protected:
   std::vector<std::shared_ptr<AuctionItemPluginBase>> auction_items_;
   std::shared_ptr<AuctionItemPluginBase> item_plugin_;
   std::vector<std::string> participants_;
+  std::string namespace_;
 };
 
 }  // namespace as2_auction_behavior

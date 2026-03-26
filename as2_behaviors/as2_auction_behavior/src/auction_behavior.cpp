@@ -43,6 +43,16 @@
 #include "as2_msgs/msg/bid.hpp"
 #include "as2_msgs/msg/start_auction.hpp"
 
+namespace
+{
+/// Strip the leading '/' that rclcpp::Node::get_namespace() always prepends.
+/// knowledge_core rejects terms that start with '/' as invalid RDF syntax.
+std::string strip_ros_ns(const std::string & ns)
+{
+  return (!ns.empty() && ns.front() == '/') ? ns.substr(1) : ns;
+}
+}  // namespace
+
 AuctionBehavior::~AuctionBehavior() {}
 
 AuctionBehavior::AuctionBehavior(const rclcpp::NodeOptions & options)
@@ -123,9 +133,9 @@ void AuctionBehavior::configure()
 
       // Send a self-goal to activate the run timer so on_run() ticks for convergence detection.
       GoalT participant_goal;
-      participant_goal.type     = elements.item_type;
+      participant_goal.type = elements.item_type;
       participant_goal.elements = elements.list;
-      participant_goal.bidders  = msg.participants;
+      participant_goal.bidders = msg.participants;
 
       is_participant_ = true;
       self_action_client_->async_send_goal(participant_goal);
@@ -201,6 +211,7 @@ bool AuctionBehavior::on_activate(std::shared_ptr<const GoalT> goal)
     auction_plugin_->on_activate(goal);
   }
 
+  this->kb_interface_.add_fact(strip_ros_ns(this->get_namespace()), "auctionStatus", "started");
   is_participant_ = false;
   goal_ = *goal;
   started = true;
@@ -257,6 +268,10 @@ void AuctionBehavior::on_execution_end(const as2_behavior::ExecutionStatus & sta
 {
   auction_plugin_->on_execution_end();
   if (state == as2_behavior::ExecutionStatus::SUCCESS) {
+    this->kb_interface_.remove_fact(
+      strip_ros_ns(this->get_namespace()), "auctionStatus",
+      "started");
+    this->kb_interface_.add_fact(strip_ros_ns(this->get_namespace()), "auctionStatus", "completed");
     publish_results_to_kb(result_);
   }
 }
@@ -278,8 +293,8 @@ void AuctionBehavior::publish_results_to_kb(const ResultT & result)
       }
     }
 
-    kb_interface_.add_fact(id_point, "xCoord", x_str);
-    kb_interface_.add_fact(id_point, "yCoord", y_str);
-    kb_interface_.add_fact(id_point, "assignedTo", agent_id);
+    kb_interface_.add_fact(id_point, "xCoord", "\"" + x_str + "\"");
+    kb_interface_.add_fact(id_point, "yCoord", "\"" + y_str + "\"");
+    kb_interface_.add_fact(id_point, "assignedTo", strip_ros_ns(agent_id));
   }
 }

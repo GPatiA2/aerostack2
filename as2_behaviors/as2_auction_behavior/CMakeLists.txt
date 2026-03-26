@@ -28,7 +28,6 @@ set(PROJECT_DEPENDENCIES
   geometry_msgs
   visualization_msgs
   as2_ca
-  auction_msgs
   as2_state_interface
   as2_kb_interface
 )
