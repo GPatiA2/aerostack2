@@ -47,10 +47,10 @@ using json = nlohmann::json;
 
 KBInterface::KBInterface(rclcpp::Node * node)
 {
-  add_fact_pub_ = node->create_publisher<std_msgs::msg::String>("/kb/add_fact", 10);
-  remove_fact_pub_ = node->create_publisher<std_msgs::msg::String>("/kb/remove_fact", 10);
-  event_client_ = node->create_client<kb_msgs::srv::Event>("/kb/event");
-  query_client_ = node->create_client<kb_msgs::srv::Query>("/kb/query");
+  add_fact_pub_ = node->create_publisher<std_msgs::msg::String>("kb/add_fact", 10);
+  remove_fact_pub_ = node->create_publisher<std_msgs::msg::String>("kb/remove_fact", 10);
+  event_client_ = node->create_client<kb_msgs::srv::Event>("kb/events");
+  query_client_ = node->create_client<kb_msgs::srv::Query>("kb/query");
   node_ = node;
 }
 
