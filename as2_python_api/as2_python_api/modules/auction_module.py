@@ -87,7 +87,13 @@ class AuctionModule(ModuleBase, AuctionBehavior):
     ) -> bool:
         goal_msg = Auction.Goal()
         goal_msg.name = name
-        goal_msg.elements = elements
+        goal_msg.elements = [
+            (AuctionItem(name=e['name'],
+                         feature_names=list(e.get('feature_names', [])),
+                         features=[float(f) for f in e.get('features', [])])
+             if isinstance(e, dict) else e)
+            for e in elements
+        ]
         goal_msg.type = auction_type
         goal_msg.bidders = bidders
         self._node.get_logger().info(
