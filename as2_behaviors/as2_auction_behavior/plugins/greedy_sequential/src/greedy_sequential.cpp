@@ -128,7 +128,7 @@ Plugin::FeedbackT Plugin::get_feedback()
 {
   FeedbackT feedback;
   for (const auto & [name, cost] : my_claims_) {
-    feedback.asignees.push_back("self");
+    feedback.asignees.push_back(namespace_);
     feedback.amounts.push_back(cost);
     for (const auto & item : auction_items_) {
       if (item->get_name() == name) {
@@ -144,7 +144,7 @@ Plugin::ResultT Plugin::get_result()
 {
   ResultT result;
   for (const auto & [name, cost] : my_claims_) {
-    result.winners.push_back("self");
+    result.winners.push_back(namespace_);
     for (const auto & item : auction_items_) {
       if (item->get_name() == name) {
         result.elements.push_back(item->get_item());
