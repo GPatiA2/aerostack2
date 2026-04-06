@@ -75,6 +75,8 @@ public:
     if (!namespace_.empty() && namespace_[0] == '/') {
       namespace_ = namespace_.substr(1);
     }
+
+    node_ptr_ = node_ptr;
   }
 
   virtual void on_activate(std::shared_ptr<const GoalT> goal) = 0;
@@ -101,6 +103,22 @@ public:
 
   virtual bool check_convergence() = 0;
 
+  void send_bid(const as2_msgs::msg::Bid & bid)
+  {
+    if (bid.name.empty() || participants_.empty()) {
+      return;
+    }
+    std::string claimed_tasks;
+    for (const auto & name : bid.name) {
+      claimed_tasks += "'" + name + "' ";
+    }
+    RCLCPP_INFO(
+      rclcpp::get_logger("AuctionBehaviorPluginBase"),
+      "Sending bid claiming %zu task(s) [%s] to %zu participant(s)",
+      bid.name.size(), claimed_tasks.c_str(), participants_.size());
+    client_.forward_IA_msg<as2_msgs::msg::Bid>(bid, "bid", participants_);
+  }
+
   void on_bid_received(
     const as2_msgs::msg::Bid & msg,
     const std::string & agent_id)
@@ -116,27 +134,22 @@ public:
       return;
     }
 
-    // Compute new bids
+    // Compute new bids; an empty bid means bundle is full — do not forward to
+    // avoid infinite loops between agents.
     as2_msgs::msg::Bid new_bid = compute_bid();
-
-    // Send new bid to other agents
-    std::string claimed_tasks;
-    for (const auto & name : new_bid.name) {
-      claimed_tasks += "'" + name + "' ";
-    }
-    RCLCPP_INFO(
-      rclcpp::get_logger("AuctionBehaviorPluginBase"),
-      "Sending bid claiming %zu task(s) [%s] to %zu participant(s)",
-      new_bid.name.size(), claimed_tasks.c_str(), participants_.size());
-    client_.forward_IA_msg<as2_msgs::msg::Bid>(new_bid, "bid", participants_);
+    send_bid(new_bid);
   }
+
+  // Called by the behavior's on_run() tick. Override in plugins that need
+  // periodic logic (e.g. retransmission, timeout-based convergence).
+  virtual void on_run() {}
 
   void set_participans(const std::vector<std::string> & participants)
   {
     participants_ = participants;
   }
 
-  void configure(rclcpp::Node * node_ptr)
+  virtual void configure(rclcpp::Node * node_ptr)
   {
     RCLCPP_INFO(
       rclcpp::get_logger("AuctionBehaviorPluginBase"), "Configuring state interface");
@@ -149,7 +162,6 @@ public:
     RCLCPP_INFO(
       node_ptr->get_logger(), "State components: [%s]", state_components_str.c_str());
     state_interface_.configure(node_ptr, state_components);
-    // state_interface_.configure(node_ptr, participants_);
   }
 
   virtual as2_msgs::action::Auction::Feedback get_feedback() = 0;
@@ -163,6 +175,8 @@ protected:
   std::shared_ptr<AuctionItemPluginBase> item_plugin_;
   std::vector<std::string> participants_;
   std::string namespace_;
+  as2::Node * node_ptr_;
+
 };
 
 }  // namespace as2_auction_behavior

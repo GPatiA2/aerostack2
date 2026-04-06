@@ -35,6 +35,7 @@
 #ifndef GREEDY_SEQUENTIAL__GREEDY_SEQUENTIAL_HPP_
 #define GREEDY_SEQUENTIAL__GREEDY_SEQUENTIAL_HPP_
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <unordered_set>
@@ -65,6 +66,13 @@ public:
   void update(const as2_msgs::msg::Bid & bid_msg, const std::string & agent_id) override;
   bool check_convergence() override;
 
+  void configure(rclcpp::Node * node) override;
+
+  // Retransmit ALL current claims so late-starting peers can catch up.
+  // The base class only retransmits last_bid_ (the final single claim), which
+  // means earlier claims are permanently lost for drones that missed them.
+  void on_run() override;
+
   FeedbackT get_feedback() override;
   ResultT get_result() override;
 
@@ -80,6 +88,20 @@ protected:
 
   // Maximum number of tasks this agent will claim
   int bundle_size_{1};
+
+  // How long to wait without receiving any bid before declaring convergence.
+  // Even when the bundle is full, in-flight conflict retransmits from peers
+  // may still be on the way. Waiting here lets them land and be processed first.
+  static constexpr double stability_wait_s_ = 0.5;
+
+  // Timestamp of the last received bid. Only updated in update(), never on
+  // outgoing retransmits; see check_convergence() for why that matters.
+  std::chrono::steady_clock::time_point last_activity_time_;
+
+  // Timestamp of the last bid sent (or retransmitted). Used by on_run() to
+  // decide when to retransmit all current claims to peers that may have missed them.
+  std::chrono::steady_clock::time_point last_bid_time_;
+  double retransmit_timeout_s_{2.0};
 
 private:
   void reset();

@@ -211,6 +211,11 @@ bool AuctionBehavior::on_activate(std::shared_ptr<const GoalT> goal)
     auction_plugin_->on_activate(goal);
   }
 
+  // Remove any stale auction status facts from a previous run so that the
+  // subsequent add_fact("completed") in on_execution_end always produces a
+  // new KB insertion and triggers the kb_monitor's on_auction_completed handler.
+  this->kb_interface_.remove_fact(strip_ros_ns(this->get_namespace()), "auctionStatus", "started");
+  this->kb_interface_.remove_fact(strip_ros_ns(this->get_namespace()), "auctionStatus", "completed");
   this->kb_interface_.add_fact(strip_ros_ns(this->get_namespace()), "auctionStatus", "started");
   is_participant_ = false;
   goal_ = *goal;
@@ -232,6 +237,16 @@ bool AuctionBehavior::on_deactivate(const std::shared_ptr<std::string> & message
 
 bool AuctionBehavior::on_pause(const std::shared_ptr<std::string> & message)
 {
+  // Reject pause requests while the auction is running.  The PAUSE from
+  // on_auction_started is meant to stop a follow_path behavior so the drone
+  // hovers during bidding.  It must not interrupt the auction itself — if it
+  // did, on_run would stop being called and check_convergence would never
+  // declare success, leaving the drone with no follow_path mission.
+  if (started) {
+    *message = "auction in progress — pause rejected";
+    RCLCPP_WARN(this->get_logger(), "PAUSE rejected: auction is in progress");
+    return false;
+  }
   return true;
 }
 
@@ -250,6 +265,7 @@ as2_behavior::ExecutionStatus AuctionBehavior::on_run(
   }
 
   if (!auction_plugin_->check_convergence()) {
+    auction_plugin_->on_run();  // retransmits last bid if chain is stuck
     FeedbackT fb = auction_plugin_->get_feedback();
     feedback_msg->asignees = fb.asignees;
     feedback_msg->items = fb.items;
@@ -268,11 +284,16 @@ void AuctionBehavior::on_execution_end(const as2_behavior::ExecutionStatus & sta
 {
   auction_plugin_->on_execution_end();
   if (state == as2_behavior::ExecutionStatus::SUCCESS) {
-    this->kb_interface_.remove_fact(
-      strip_ros_ns(this->get_namespace()), "auctionStatus",
-      "started");
-    this->kb_interface_.add_fact(strip_ros_ns(this->get_namespace()), "auctionStatus", "completed");
     publish_results_to_kb(result_);
+    this->kb_interface_.remove_fact(
+      strip_ros_ns(this->get_namespace()), "auctionStatus", "started");
+    this->kb_interface_.add_fact(
+      strip_ros_ns(this->get_namespace()), "auctionStatus", "completed");
+  } else {
+    // Auction was stopped or aborted — remove the 'started' fact so KB
+    // monitors are not left waiting for a completion that will never come.
+    this->kb_interface_.remove_fact(
+      strip_ros_ns(this->get_namespace()), "auctionStatus", "started");
   }
 }
 
