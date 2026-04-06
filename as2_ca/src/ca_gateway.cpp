@@ -55,11 +55,11 @@ CA_Gateway::CA_Gateway(const rclcpp::NodeOptions & options)
     RCLCPP_ERROR(this->get_logger(), "Parameter declaration error: %s", e.what());
   }
 
-  try {
-    this->declare_parameter("agent_id", "drone0");
-    this->get_parameter("agent_id", agent_id_);
-  } catch (const rclcpp::ParameterTypeException & e) {
-    RCLCPP_ERROR(this->get_logger(), "Parameter declaration/getting error: %s", e.what());
+  // Derive agent_id from the node namespace, stripping the leading '/'.
+  // e.g. node namespace "/drone1" → agent_id_ = "drone1".
+  agent_id_ = this->get_namespace();
+  if (!agent_id_.empty() && agent_id_[0] == '/') {
+    agent_id_ = agent_id_.substr(1);
   }
 
   try {
@@ -205,7 +205,7 @@ void CA_Gateway::check_peers()
       continue;
     }
 
-    // Extract agent_id: strip leading '/' and the suffix (e.g. "/drone1/ca_incoming" -> "drone1")
+    // Extract agent_id: strip leading '/' and the suffix ("/drone1/ca_incoming" becomes "drone1")
     std::string peer_id = name.substr(1, name.size() - 1 - suffix.size());
 
     if (inter_agent_publishers_.find(peer_id) == inter_agent_publishers_.end()) {
