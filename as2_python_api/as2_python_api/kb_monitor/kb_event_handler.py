@@ -40,10 +40,12 @@ import rclpy
 from as2_msgs.msg import MissionUpdate
 from as2_python_api.kb_monitor.kb_params import EventHandlerParams
 from as2_python_api.mission_interpreter.mission import InterpreterStatus
+from geometry_msgs.msg import PoseStamped
 from kb_msgs.srv import Event, Query
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.publisher import Publisher
+from rclpy.qos import qos_profile_sensor_data
 from rclpy.subscription import Subscription
 from std_msgs.msg import String
 
@@ -152,6 +154,9 @@ class KBHandlerContext:
         Most recent mission interpreter status received on
         ``/{drone_namespace}/mission_status``.  Updated automatically;
         ``None`` until the first message arrives.
+    pose : PoseStamped | None
+        Most recent pose received on ``/{drone_namespace}/self_localization/pose``.
+        Updated automatically; ``None`` until the first message arrives.
     """
 
     def __init__(
@@ -164,6 +169,7 @@ class KBHandlerContext:
     ) -> None:
         self.drone_namespace = drone_namespace
         self.mission_status: InterpreterStatus | None = None
+        self.pose: PoseStamped | None = None
         self._mission_update_pub = mission_update_pub
         self._add_fact_pub = add_fact_pub
         self._remove_fact_pub = remove_fact_pub
@@ -396,9 +402,20 @@ class KBMonitorNode(Node):
             10,
         )
 
+        def _pose_cb(msg: PoseStamped, _ctx=ctx) -> None:
+            _ctx.pose = msg
+
+        pose_sub = self.create_subscription(
+            PoseStamped,
+            f'/{drone_namespace}/self_localization/pose',
+            _pose_cb,
+            qos_profile_sensor_data,
+        )
+
         self._drone_state[drone_namespace] = {
             'context': ctx,
             'query_helper': query_helper,
             'mission_status_sub': status_sub,
+            'pose_sub': pose_sub,
         }
         return ctx

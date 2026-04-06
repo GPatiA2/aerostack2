@@ -89,7 +89,7 @@ public:
       entry->key = key;
       entry->value_ptr = std::make_shared<T>();
       entry->subscription_ptr = node->create_subscription<T>(
-        key, 10,
+        key, rclcpp::SensorDataQoS(),
         [value_ptr = entry->value_ptr](const typename T::SharedPtr msg) {
           *value_ptr = *msg;
         });
