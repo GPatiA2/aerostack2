@@ -32,6 +32,7 @@ __authors__ = 'Pedro Arias Pérez'
 __copyright__ = 'Copyright (c) 2025 Universidad Politécnica de Madrid'
 __license__ = 'BSD-3-Clause'
 
+import array
 import logging
 from threading import Thread
 import time
@@ -48,6 +49,32 @@ logging.basicConfig(
     format='[%(levelname)s] [%(asctime)s] [%(name)s]: %(message)s',
     datefmt='%s',
 )
+
+
+def _to_json_serializable(value):
+    """Recursively convert ROS message values to JSON-serializable types.
+
+    Feedback fields like Auction_Feedback.items contain AuctionItem objects
+    (with array.array 'features') that Pydantic cannot serialize.  This
+    converts them to plain dicts/lists so InterpreterStatus.json() succeeds.
+    """
+    if isinstance(value, (bool, int, float, str)) or value is None:
+        return value
+    if isinstance(value, array.array):
+        return list(value)
+    if isinstance(value, (list, tuple)):
+        return [_to_json_serializable(v) for v in value]
+    # ROS message object: convert all its fields recursively
+    if hasattr(value, 'get_fields_and_field_types'):
+        return {
+            k: _to_json_serializable(getattr(value, k))
+            for k in value.get_fields_and_field_types()
+        }
+    # Fallback: try str so the status publish never crashes
+    try:
+        return str(value)
+    except Exception:
+        return None
 
 
 class MissionInterpreter:
@@ -171,7 +198,7 @@ class MissionInterpreter:
             fb_dict = feedback
         else:
             for k, _ in feedback.get_fields_and_field_types().items():
-                fb_dict[k] = getattr(feedback, k)
+                fb_dict[k] = _to_json_serializable(getattr(feedback, k))
         return fb_dict
 
     def load_mission(self, mid: int, mission: Mission) -> None:
