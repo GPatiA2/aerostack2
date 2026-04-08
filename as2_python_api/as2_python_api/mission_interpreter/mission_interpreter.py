@@ -67,8 +67,7 @@ def _to_json_serializable(value):
     # ROS message object: convert all its fields recursively
     if hasattr(value, 'get_fields_and_field_types'):
         return {
-            k: _to_json_serializable(getattr(value, k))
-            for k in value.get_fields_and_field_types()
+            k: _to_json_serializable(getattr(value, k)) for k in value.get_fields_and_field_types()
         }
     # Fallback: try str so the status publish never crashes
     try:
@@ -175,6 +174,7 @@ class MissionInterpreter:
 
         return InterpreterStatus(
             state=state,
+            mission_id=self._current_mid,
             pending_items=len(self.mission_stack.pending),
             done_items=len(self.mission_stack.done),
             current_item=self.mission_stack.current,

@@ -168,6 +168,7 @@ class InterpreterStatus(BaseModel):
     """Mission status."""
 
     state: InterpreterState = BehaviorStatus.IDLE
+    mission_id: int = None
     pending_items: int = 0
     done_items: int = 0
     current_item: MissionItem = None
