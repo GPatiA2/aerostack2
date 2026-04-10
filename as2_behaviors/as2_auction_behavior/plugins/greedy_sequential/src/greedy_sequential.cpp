@@ -44,6 +44,37 @@
 namespace greedy_sequential
 {
 
+void Plugin::on_auction_items_received(
+  const as2_msgs::msg::AuctionItemArray & msg,
+  const std::string & agent_id)
+{
+  // Delegate to base class to populate auction_items_.
+  AuctionBehaviorPluginBase::on_auction_items_received(msg, agent_id);
+
+  // Compute bundle_size dynamically: ceil(items / participants).
+  // This guarantees that when each agent claims its fair share the bundle_full
+  // convergence criterion fires, regardless of the value in config.yaml.
+  if (!participants_.empty()) {
+    int n_items = static_cast<int>(auction_items_.size());
+    int n_agents = static_cast<int>(participants_.size());
+    bundle_size_ = std::max(1, (n_items + n_agents - 1) / n_agents);
+    RCLCPP_INFO(
+      rclcpp::get_logger("greedy_sequential"),
+      "Dynamic bundle_size set to %d (%d items / %d agents)",
+      bundle_size_, n_items, n_agents);
+  }
+
+  // Initialize the activity clock here so it is set for BOTH roles:
+  //   - Auctioneer: on_activate() will overwrite it again below (harmless).
+  //   - Participant: skips on_activate(), so this is the only initialization
+  //     point before check_convergence() starts being called.
+  last_activity_time_ = std::chrono::steady_clock::now();
+  RCLCPP_INFO(
+    rclcpp::get_logger("greedy_sequential"),
+    "Received %zu auction items, activity clock initialized",
+    msg.list.size());
+}
+
 void Plugin::on_activate(std::shared_ptr<const GoalT> goal)
 {
   // auction_items_ and participants_ are already set before this call.
@@ -200,7 +231,28 @@ bool Plugin::check_convergence()
   const bool all_accounted =
     (claimed_by_others_.size() + my_claim_names_.size() >= auction_items_.size());
 
+  const double idle = std::chrono::duration<double>(
+    std::chrono::steady_clock::now() - last_activity_time_).count();
+
   if (!bundle_full && !all_accounted) {
+    // Fallback convergence: drones that end up with zero claims (because there
+    // are fewer tasks than drones, or because they yielded all conflicts) have
+    // no items to retransmit, so on_run() is a no-op for them.  Once all
+    // peers with claims converge and call reset(), they stop retransmitting.
+    // If no bid has arrived for twice the retransmit interval, the auction is
+    // almost certainly over and this drone can safely declare convergence.
+    //
+    // last_activity_time_ is initialized in on_auction_items_received() for
+    // both roles, so 'idle' is always measured from a meaningful starting point.
+    if (idle > retransmit_timeout_s_ * 2.0) {
+      RCLCPP_WARN(
+        rclcpp::get_logger("greedy_sequential"),
+        "Convergence timeout: %zu claims, %zu/%zu items accounted, idle=%.2fs "
+        "— declaring convergence (likely missed bids from already-reset peers)",
+        my_claim_names_.size(), claimed_by_others_.size(),
+        auction_items_.size(), idle);
+      return true;
+    }
     return false;
   }
 
@@ -212,8 +264,6 @@ bool Plugin::check_convergence()
   // when we send or retransmit. If we also reset it on outgoing messages, a drone
   // that keeps retransmitting into silence (all peers already reset) would push the
   // clock forward indefinitely and never exit this wait.
-  const double idle = std::chrono::duration<double>(
-    std::chrono::steady_clock::now() - last_activity_time_).count();
   if (idle < stability_wait_s_) {
     RCLCPP_INFO(
       rclcpp::get_logger("greedy_sequential"),
@@ -289,6 +339,11 @@ void Plugin::reset()
   my_claim_names_.clear();
   my_claims_.clear();
   auction_items_.clear();
+  // Re-initialize timing so the next on_auction_items_received() has a sensible
+  // baseline and the fallback timeout in check_convergence() cannot trigger on a
+  // stale timestamp from the previous auction run.
+  last_activity_time_ = std::chrono::steady_clock::now();
+  last_bid_time_ = std::chrono::steady_clock::now();
 }
 
 }  // namespace greedy_sequential

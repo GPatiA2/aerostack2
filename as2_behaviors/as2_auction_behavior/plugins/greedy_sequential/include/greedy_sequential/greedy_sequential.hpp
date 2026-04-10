@@ -62,6 +62,13 @@ public:
   void on_deactivate() override;
   void on_execution_end() override;
 
+  // Override to initialize the activity clock for both the auctioneer and
+  // participant roles (participants skip on_activate, so this is the only
+  // common entry point that runs before any convergence check).
+  void on_auction_items_received(
+    const as2_msgs::msg::AuctionItemArray & msg,
+    const std::string & agent_id) override;
+
   as2_msgs::msg::Bid compute_bid() override;
   void update(const as2_msgs::msg::Bid & bid_msg, const std::string & agent_id) override;
   bool check_convergence() override;
