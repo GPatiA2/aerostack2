@@ -172,6 +172,75 @@ bool GoToBehavior::on_activate(std::shared_ptr<const as2_msgs::action::GoToWaypo
   if (!process_goal(goal, new_goal)) {
     return false;
   }
+
+  const double goal_x = new_goal.target_pose.point.x;
+  const double goal_y = new_goal.target_pose.point.y;
+
+  // Find the KB point whose xCoord/yCoord match the goal coordinates.
+  std::string current_point_id;
+  auto all_points = kb_interface_.query_kb_all(
+  {
+    as2::KBInterface::Triple("?point", "xCoord", "?x"),
+    as2::KBInterface::Triple("?point", "yCoord", "?y")
+  },
+    {"?point", "?x", "?y"});
+
+  for (auto & binding : all_points) {
+    try {
+      std::string x_str = binding.at("x");
+      std::string y_str = binding.at("y");
+      // Strip surrounding quotes that the KB adds for literal values.
+      if (x_str.size() >= 2 && x_str.front() == '"') {
+        x_str = x_str.substr(1, x_str.size() - 2);
+      }
+      if (y_str.size() >= 2 && y_str.front() == '"') {
+        y_str = y_str.substr(1, y_str.size() - 2);
+      }
+      if (std::abs(std::stod(x_str) - goal_x) < 1e-3 &&
+        std::abs(std::stod(y_str) - goal_y) < 1e-3)
+      {
+        current_point_id = binding.at("point");
+        break;
+      }
+    } catch (const std::exception &) {
+    }
+  }
+
+  if (current_point_id.empty()) {
+    RCLCPP_WARN(
+      this->get_logger(),
+      "GoToBehavior: no KB point found matching goal (%.3f, %.3f) — KB facts will be skipped",
+      goal_x, goal_y);
+    return go_to_plugin_->on_activate(
+      std::make_shared<const as2_msgs::action::GoToWaypoint::Goal>(new_goal));
+  }
+
+  // Determine next goto_id by scanning existing goto_N facts in the KB.
+  int next_id = 0;
+  auto all_gotos = kb_interface_.query_kb_all(
+    {as2::KBInterface::Triple("?goto", "to", "?point")},
+    {"?goto"});
+
+  for (auto & binding : all_gotos) {
+    const std::string & goto_name = binding.at("goto");
+    if (goto_name.rfind("goto_", 0) == 0) {
+      try {
+        int n = std::stoi(goto_name.substr(5));
+        if (n >= next_id) {next_id = n + 1;}
+      } catch (const std::exception &) {
+      }
+    }
+  }
+
+  const std::string goto_subject = "goto_" + std::to_string(next_id);
+
+  kb_interface_.add_fact(goto_subject, "status", "started");
+  kb_interface_.add_fact(goto_subject, "to", current_point_id);
+
+  RCLCPP_INFO(
+    this->get_logger(), "GoToBehavior: registered %s -> %s in KB",
+    goto_subject.c_str(), current_point_id.c_str());
+
   return go_to_plugin_->on_activate(
     std::make_shared<const as2_msgs::action::GoToWaypoint::Goal>(new_goal));
 }
@@ -211,6 +280,20 @@ as2_behavior::ExecutionStatus GoToBehavior::on_run(
 
 void GoToBehavior::on_execution_end(const as2_behavior::ExecutionStatus & state)
 {
+  // There is exactly one goto_N with status started — query_kb returns it directly.
+  auto binding = kb_interface_.query_kb(
+    {as2::KBInterface::Triple("?goto", "status", "started")},
+    {"?goto"});
+
+  if (!binding.empty()) {
+    const std::string & goto_subject = binding.at("goto");
+    if (goto_subject.rfind("goto_", 0) == 0) {
+      kb_interface_.remove_fact(goto_subject, "status", "started");
+      kb_interface_.add_fact(goto_subject, "status", "finished");
+      RCLCPP_INFO(
+        this->get_logger(), "GoToBehavior: %s status -> finished in KB", goto_subject.c_str());
+    }
+  }
   return go_to_plugin_->on_execution_end(state);
 }
 
