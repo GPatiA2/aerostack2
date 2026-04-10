@@ -29,7 +29,6 @@ set(PROJECT_DEPENDENCIES
   visualization_msgs
   as2_ca
   as2_state_interface
-  as2_kb_interface
 )
 
 # find_package(backward_ros REQUIRED)

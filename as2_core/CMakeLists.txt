@@ -54,7 +54,9 @@ set(PROJECT_DEPENDENCIES
     rclcpp_action
     image_transport
     cv_bridge
-    geographic_msgs)
+    geographic_msgs
+    kb_msgs
+    nlohmann_json)
 
 foreach(DEPENDENCY ${PROJECT_DEPENDENCIES})
   find_package(${DEPENDENCY} REQUIRED)
@@ -73,6 +75,7 @@ ament_python_install_package(${PROJECT_NAME})
 
 set(SOURCE_CPP_FILES
     src/node.cpp
+    src/kb_interface.cpp
     src/sensor.cpp
     src/aerial_platform.cpp
     src/platform_state_machine.cpp

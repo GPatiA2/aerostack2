@@ -28,30 +28,53 @@
 
 /*!*******************************************************************************************
  *  \file       kb_interface.cpp
- *  \brief      knowledge base interface implementation file
+ *  \brief      Knowledge base interface implementation file
  *  \authors    Guillermo GP-Lenza
  ********************************************************************************************/
 
-#include <string>
-#include <vector>
+#include <chrono>
 #include <memory>
+#include <sstream>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "rclcpp/node.hpp"
 #include "std_msgs/msg/string.hpp"
-#include "as2_kb_interface/json.hpp"
-#include "as2_kb_interface/kb_interface.hpp"
+#include <nlohmann/json.hpp>
+#include "as2_core/kb_interface.hpp"
 #include "kb_msgs/srv/query.hpp"
 
 using json = nlohmann::json;
 
+namespace as2
+{
+
 KBInterface::KBInterface(rclcpp::Node * node)
 {
+  node_ = node;
   add_fact_pub_ = node->create_publisher<std_msgs::msg::String>("kb/add_fact", 10);
   remove_fact_pub_ = node->create_publisher<std_msgs::msg::String>("kb/remove_fact", 10);
-  event_client_ = node->create_client<kb_msgs::srv::Event>("kb/events");
-  query_client_ = node->create_client<kb_msgs::srv::Query>("kb/query");
-  node_ = node;
+
+  // Use a dedicated node for service clients so that query_kb_all can wait on
+  // the future without re-entering the caller node's executor (which would
+  // crash with "Node already added to an executor" when called from a callback).
+  client_node_ = std::make_shared<rclcpp::Node>(
+    std::string(node->get_name()) + "_kb_client",
+    std::string(node->get_namespace()));
+  event_client_ = client_node_->create_client<kb_msgs::srv::Event>("kb/events");
+  query_client_ = client_node_->create_client<kb_msgs::srv::Query>("kb/query");
+
+  client_executor_.add_node(client_node_);
+  spin_thread_ = std::thread([this]() { client_executor_.spin(); });
+}
+
+KBInterface::~KBInterface()
+{
+  client_executor_.cancel();
+  if (spin_thread_.joinable()) {
+    spin_thread_.join();
+  }
 }
 
 void KBInterface::add_fact(
@@ -79,7 +102,6 @@ void KBInterface::register_event_handler(
   std::function<void(const Triple &)> handler)
 {
   auto callback = [handler](const std_msgs::msg::String::SharedPtr msg) {
-      // Assuming the message data is in the format "subject predicate object"
       std::istringstream iss(msg->data);
       std::string subj, pred, obj;
       iss >> subj >> pred >> obj;
@@ -95,6 +117,13 @@ void KBInterface::register_event_handler(
 std::unordered_map<std::string, std::string> KBInterface::query_kb(
   const std::vector<Triple> & clauses, const std::vector<std::string> & variables) const
 {
+  auto all = query_kb_all(clauses, variables);
+  return all.empty() ? std::unordered_map<std::string, std::string>{} : all[0];
+}
+
+std::vector<std::unordered_map<std::string, std::string>> KBInterface::query_kb_all(
+  const std::vector<Triple> & clauses, const std::vector<std::string> & variables) const
+{
   auto request = std::make_shared<kb_msgs::srv::Query::Request>();
   request->vars = variables;
   std::vector<std::string> clause_strings;
@@ -105,10 +134,11 @@ std::unordered_map<std::string, std::string> KBInterface::query_kb(
 
   auto future = query_client_->async_send_request(request);
 
-  if (rclcpp::spin_until_future_complete(node_->get_node_base_interface(), future) !=
-    rclcpp::FutureReturnCode::SUCCESS)
-  {
-    RCLCPP_ERROR(node_->get_logger(), "Failed to call /kb/query service");
+  // Wait for the response without touching the caller's executor.
+  // client_executor_ (background thread) handles spinning client_node_.
+  auto timeout = std::chrono::seconds(5);
+  if (future.wait_for(timeout) != std::future_status::ready) {
+    RCLCPP_ERROR(node_->get_logger(), "Failed to call /kb/query service (timeout)");
     return {};
   }
 
@@ -118,18 +148,20 @@ std::unordered_map<std::string, std::string> KBInterface::query_kb(
     return {};
   }
 
-  std::unordered_map<std::string, std::string> result;
+  std::vector<std::unordered_map<std::string, std::string>> results;
   auto json_array = json::parse(response->json);
-  if (json_array.is_array() && !json_array.empty()) {
-    for (auto & [key, value] : json_array[0].items()) {
-      result[key] = value.get<std::string>();
+  if (json_array.is_array()) {
+    for (auto & binding : json_array) {
+      std::unordered_map<std::string, std::string> row;
+      for (auto & [key, value] : binding.items()) {
+        row[key] = value.get<std::string>();
+      }
+      results.push_back(std::move(row));
     }
   }
 
-  RCLCPP_INFO(node_->get_logger(), "Query result (%zu entries):", result.size());
-  for (const auto & [key, value] : result) {
-    RCLCPP_INFO(node_->get_logger(), "  %s: %s", key.c_str(), value.c_str());
-  }
-
-  return result;
+  RCLCPP_INFO(node_->get_logger(), "Query returned %zu result(s)", results.size());
+  return results;
 }
+
+}  // namespace as2

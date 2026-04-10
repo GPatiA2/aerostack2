@@ -48,7 +48,6 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "as2_auction_behavior/auction_behavior_plugin_base.hpp"
 #include "as2_auction_behavior/auction_item_plugin_base.hpp"
-#include "as2_kb_interface/kb_interface.hpp"
 
 class AuctionBehavior : public as2_behavior::BehaviorServer<as2_msgs::action::Auction>
 {
@@ -83,11 +82,11 @@ private:
   bool started;
   bool is_participant_{false};
 
+  std::string auction_id_;
+
   rclcpp_action::Client<as2_msgs::action::Auction>::SharedPtr self_action_client_;
 
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
-
-  KBInterface kb_interface_;
 
   void publish_results_to_kb(const ResultT & result);
 

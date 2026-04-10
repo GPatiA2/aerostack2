@@ -28,25 +28,26 @@
 
 /*!*******************************************************************************************
  *  \file       kb_interface.hpp
- *  \brief      knowledge base interface header file
+ *  \brief      Knowledge base interface header file
  *  \authors    Guillermo GP-Lenza
  ********************************************************************************************/
 
-#ifndef AS2_KB_INTERFACE__KB_INTERFACE_HPP_
-#define AS2_KB_INTERFACE__KB_INTERFACE_HPP_
+#ifndef AS2_CORE__KB_INTERFACE_HPP_
+#define AS2_CORE__KB_INTERFACE_HPP_
 
-
-#include <string>
-#include <vector>
-#include <unordered_map>
 #include <functional>
-
-#include <rclcpp/node.hpp>
+#include <string>
+#include <thread>
+#include <unordered_map>
+#include <vector>
 
 #include "rclcpp/rclcpp.hpp"
 #include "kb_msgs/srv/event.hpp"
 #include "kb_msgs/srv/query.hpp"
 #include "std_msgs/msg/string.hpp"
+
+namespace as2
+{
 
 class KBInterface
 {
@@ -72,17 +73,20 @@ public:
 
     std::string repr() const
     {
-      return "Triple(subject='" + subject + "', predicate='" + predicate + "', object='" + object +
-             "')";
+      return "Triple(subject='" + subject + "', predicate='" + predicate + "', object='" +
+             object + "')";
     }
   };
 
   explicit KBInterface(rclcpp::Node * node_ptr);
-  ~KBInterface() = default;
+  ~KBInterface();
 
   void add_fact(const std::string & subj, const std::string & pred, const std::string & obj);
   void remove_fact(const std::string & subj, const std::string & pred, const std::string & obj);
   std::unordered_map<std::string, std::string> query_kb(
+    const std::vector<Triple> & clauses, const std::vector<std::string> & variables) const;
+
+  std::vector<std::unordered_map<std::string, std::string>> query_kb_all(
     const std::vector<Triple> & clauses, const std::vector<std::string> & variables) const;
 
   void register_event_handler(
@@ -97,6 +101,14 @@ private:
   rclcpp::Client<kb_msgs::srv::Query>::SharedPtr query_client_;
   std::unordered_map<std::string,
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr> event_handlers_;
+
+  // Dedicated node + executor for service clients so that query_kb_all can
+  // wait on the future without re-entering the caller's executor.
+  rclcpp::Node::SharedPtr client_node_;
+  rclcpp::executors::SingleThreadedExecutor client_executor_;
+  std::thread spin_thread_;
 };
 
-#endif  // AS2_KB_INTERFACE__KB_INTERFACE_HPP_
+}  // namespace as2
+
+#endif  // AS2_CORE__KB_INTERFACE_HPP_

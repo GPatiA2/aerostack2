@@ -88,7 +88,7 @@ public:
     item_plugin_ = item_plugin;
   }
 
-  void on_auction_items_received(
+  virtual void on_auction_items_received(
     const as2_msgs::msg::AuctionItemArray & msg,
     const std::string & agent_id)
   {

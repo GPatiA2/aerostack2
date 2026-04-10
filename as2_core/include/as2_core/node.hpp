@@ -48,6 +48,7 @@
 #include <rclcpp/create_timer.hpp>
 #include <rclcpp/timer.hpp>
 
+#include "as2_core/kb_interface.hpp"
 #include "as2_core/rate.hpp"
 #include "rclcpp/publisher.hpp"
 #include "rclcpp/publisher_options.hpp"
@@ -100,7 +101,7 @@ public:
   Node(
     const std::string & name, const std::string & ns,
     const rclcpp::NodeOptions & options = rclcpp::NodeOptions())
-  : AS2_NODE_FATHER_TYPE(name, ns, options)
+  : AS2_NODE_FATHER_TYPE(name, ns, options), kb_interface_(this)
   {
     RCLCPP_INFO(
       this->get_logger(), "Construct with name [%s] and namespace [%s]", name.c_str(), ns.c_str());
@@ -110,7 +111,7 @@ public:
   explicit Node(
     const std::string & name,
     const rclcpp::NodeOptions & options = rclcpp::NodeOptions())
-  : AS2_NODE_FATHER_TYPE(name, options)
+  : AS2_NODE_FATHER_TYPE(name, options), kb_interface_(this)
   {
     RCLCPP_INFO(this->get_logger(), "Construct with name [%s]", name.c_str());
     init();
@@ -159,6 +160,8 @@ public:
   std::string generate_global_name(const std::string & name);
 
 protected:
+  KBInterface kb_interface_;
+
   /**
    * @brief Callback for the activate state
    * @param state

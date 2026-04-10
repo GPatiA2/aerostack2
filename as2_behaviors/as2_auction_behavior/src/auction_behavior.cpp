@@ -56,7 +56,7 @@ std::string strip_ros_ns(const std::string & ns)
 AuctionBehavior::~AuctionBehavior() {}
 
 AuctionBehavior::AuctionBehavior(const rclcpp::NodeOptions & options)
-: BehaviorServer("AuctionBehavior", options), client_(this), kb_interface_(this)
+: BehaviorServer("AuctionBehavior", options), client_(this)
 {
   started = false;
   behavior_name_ = "auction_behavior";
@@ -160,6 +160,7 @@ void AuctionBehavior::configure()
   auction_plugin_->configure(this);
   RCLCPP_INFO(this->get_logger(), "Finished configuring plugin");
 }
+
 bool AuctionBehavior::on_activate(std::shared_ptr<const GoalT> goal)
 {
   RCLCPP_INFO(
@@ -167,6 +168,7 @@ bool AuctionBehavior::on_activate(std::shared_ptr<const GoalT> goal)
     is_participant_ ? "participant" : "auctioneer", goal->type.c_str(), goal->bidders.size());
 
   std::string item_type = goal->type;
+  auction_id_ = goal->name;
 
   // Load item plugin (same for both roles)
   if (loaded_item_type_ != item_type) {
@@ -215,7 +217,9 @@ bool AuctionBehavior::on_activate(std::shared_ptr<const GoalT> goal)
   // subsequent add_fact("completed") in on_execution_end always produces a
   // new KB insertion and triggers the kb_monitor's on_auction_completed handler.
   this->kb_interface_.remove_fact(strip_ros_ns(this->get_namespace()), "auctionStatus", "started");
-  this->kb_interface_.remove_fact(strip_ros_ns(this->get_namespace()), "auctionStatus", "completed");
+  this->kb_interface_.remove_fact(
+    strip_ros_ns(this->get_namespace()), "auctionStatus",
+    "completed");
   this->kb_interface_.add_fact(strip_ros_ns(this->get_namespace()), "auctionStatus", "started");
   is_participant_ = false;
   goal_ = *goal;
@@ -313,6 +317,8 @@ void AuctionBehavior::publish_results_to_kb(const ResultT & result)
         y_str = std::to_string(item.features[j]);
       }
     }
+
+    kb_interface_.add_fact(id_point, "auctionId", "\"" + auction_id_ + "\"");
 
     kb_interface_.add_fact(id_point, "xCoord", "\"" + x_str + "\"");
     kb_interface_.add_fact(id_point, "yCoord", "\"" + y_str + "\"");
