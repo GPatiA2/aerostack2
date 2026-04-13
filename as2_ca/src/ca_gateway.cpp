@@ -55,12 +55,13 @@ CA_Gateway::CA_Gateway(const rclcpp::NodeOptions & options)
     RCLCPP_ERROR(this->get_logger(), "Parameter declaration error: %s", e.what());
   }
 
-  try {
-    this->declare_parameter("agent_id", "drone0");
-    this->get_parameter("agent_id", agent_id_);
-  } catch (const rclcpp::ParameterTypeException & e) {
-    RCLCPP_ERROR(this->get_logger(), "Parameter declaration/getting error: %s", e.what());
+  // Derive agent_id from the ROS namespace (e.g. "/drone1" → "drone1").
+  // Never use a hardcoded parameter — the namespace is set via --ros-args -r __ns:=...
+  {
+    const std::string ns = this->get_namespace();
+    agent_id_ = (!ns.empty() && ns.front() == '/') ? ns.substr(1) : ns;
   }
+  RCLCPP_INFO(this->get_logger(), "CA Gateway agent_id: '%s'", agent_id_.c_str());
 
   try {
     this->declare_parameter("register_module_service_name", "register_module");
