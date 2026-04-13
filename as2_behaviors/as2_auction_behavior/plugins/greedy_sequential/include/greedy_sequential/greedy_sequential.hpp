@@ -28,14 +28,23 @@
 
 /*!*******************************************************************************************
  *  \file       greedy_sequential.hpp
- *  \brief      Greedy sequential auction behavior plugin header
+ *  \brief      Greedy broadcast auction plugin.
+ *
+ *  Protocol:
+ *    1. On receiving auction items → compute costs for all items and broadcast.
+ *    2. On receiving a peer bid → store it and resolve conflicts locally.
+ *    3. Once all participant bids have arrived → declare convergence.
+ *
+ *  Conflict rule: for each item, the agent with the lowest cost wins.
+ *  Tie-break: lexicographically smallest agent name.
+ *
  *  \authors    Guillermo GP-Lenza
  ********************************************************************************************/
 
 #ifndef GREEDY_SEQUENTIAL__GREEDY_SEQUENTIAL_HPP_
 #define GREEDY_SEQUENTIAL__GREEDY_SEQUENTIAL_HPP_
 
-#include <chrono>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_set>
@@ -58,59 +67,47 @@ class Plugin : public as2_auction_behavior::AuctionBehaviorPluginBase
 public:
   Plugin() = default;
 
-  void on_activate(std::shared_ptr<const GoalT> goal) override;
-  void on_deactivate() override;
-  void on_execution_end() override;
-
-  // Override to initialize the activity clock for both the auctioneer and
-  // participant roles (participants skip on_activate, so this is the only
-  // common entry point that runs before any convergence check).
+  // Compute costs for all auction items and broadcast immediately.
+  // Called for both the auctioneer and participant roles before any bid arrives.
   void on_auction_items_received(
     const as2_msgs::msg::AuctionItemArray & msg,
     const std::string & agent_id) override;
 
+  // No-op: the bid has already been sent in on_auction_items_received.
+  void on_activate(std::shared_ptr<const GoalT> goal) override;
+  void on_deactivate() override;
+  void on_execution_end() override;
+
+  // Returns empty — bids are sent once in on_auction_items_received, not reactively.
   as2_msgs::msg::Bid compute_bid() override;
+
+  // Store the peer's cost vector and re-run conflict resolution.
   void update(const as2_msgs::msg::Bid & bid_msg, const std::string & agent_id) override;
+
+  // True once every participant's bid has been received.
   bool check_convergence() override;
-
-  void configure(rclcpp::Node * node) override;
-
-  // Retransmit ALL current claims so late-starting peers can catch up.
-  // The base class only retransmits last_bid_ (the final single claim), which
-  // means earlier claims are permanently lost for drones that missed them.
-  void on_run() override;
 
   FeedbackT get_feedback() override;
   ResultT get_result() override;
 
 protected:
-  // Tasks claimed by other agents (received via update())
-  std::unordered_set<std::string> claimed_by_others_;
+  // This agent's cost for each item, computed once in on_auction_items_received.
+  std::map<std::string, double> my_costs_;
 
-  // Tasks claimed by this agent (used to skip in compute_bid())
-  std::unordered_set<std::string> my_claim_names_;
+  // Cost vectors received from peers: agent_id → (item_name → cost).
+  std::map<std::string, std::map<std::string, double>> received_bids_;
 
-  // Ordered record of this agent's claims: (task_name, cost)
-  std::vector<std::pair<std::string, double>> my_claims_;
+  // Agent IDs (no leading '/') from which a bid has been stored.
+  std::unordered_set<std::string> received_from_;
 
-  // Maximum number of tasks this agent will claim
-  int bundle_size_{1};
-
-  // How long to wait without receiving any bid before declaring convergence.
-  // Even when the bundle is full, in-flight conflict retransmits from peers
-  // may still be on the way. Waiting here lets them land and be processed first.
-  static constexpr double stability_wait_s_ = 0.5;
-
-  // Timestamp of the last received bid. Only updated in update(), never on
-  // outgoing retransmits; see check_convergence() for why that matters.
-  std::chrono::steady_clock::time_point last_activity_time_;
-
-  // Timestamp of the last bid sent (or retransmitted). Used by on_run() to
-  // decide when to retransmit all current claims to peers that may have missed them.
-  std::chrono::steady_clock::time_point last_bid_time_;
-  double retransmit_timeout_s_{2.0};
+  // Current assignment for this agent, updated after every new peer bid.
+  std::vector<std::pair<std::string, double>> my_assignment_;
 
 private:
+  // Per-item conflict resolution: for each item, assign to the cheapest agent.
+  // Tie-break: lexicographically smallest agent name.
+  void solve_conflicts();
+
   void reset();
 };
 

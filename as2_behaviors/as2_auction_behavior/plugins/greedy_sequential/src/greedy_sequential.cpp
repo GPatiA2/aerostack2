@@ -28,15 +28,16 @@
 
 /*!*******************************************************************************************
  *  \file       greedy_sequential.cpp
- *  \brief      Greedy sequential auction behavior plugin implementation
+ *  \brief      Greedy broadcast auction plugin implementation
  *  \authors    Guillermo GP-Lenza
  ********************************************************************************************/
 
 #include "greedy_sequential/greedy_sequential.hpp"
 
 #include <algorithm>
-#include <chrono>
+#include <limits>
 #include <string>
+#include <vector>
 
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -44,240 +45,140 @@
 namespace greedy_sequential
 {
 
+// ── conflict resolution ──────────────────────────────────────────────────────
+
+void Plugin::solve_conflicts()
+{
+  // Merge own costs and every received peer cost vector into a per-item table.
+  std::map<std::string, std::map<std::string, double>> all_costs;
+  for (const auto & [item, cost] : my_costs_) {
+    all_costs[item][namespace_] = cost;
+  }
+  for (const auto & [agent, bids] : received_bids_) {
+    for (const auto & [item, cost] : bids) {
+      all_costs[item][agent] = cost;
+    }
+  }
+
+  // For each item, the agent with the lowest cost wins.
+  // Tie-break: lexicographically smallest agent name.
+  // std::map iterates in sorted key order, so item processing is deterministic
+  // across all drones — every drone with identical bid data reaches the same result.
+  std::vector<std::pair<std::string, double>> result;
+  for (const auto & [item, agent_costs] : all_costs) {
+    std::string winner;
+    double best = std::numeric_limits<double>::max();
+    for (const auto & [agent, cost] : agent_costs) {
+      if (cost < best || (cost == best && agent < winner)) {
+        winner = agent;
+        best = cost;
+      }
+    }
+    if (winner == namespace_) {
+      result.emplace_back(item, best);
+    }
+  }
+  my_assignment_ = std::move(result);
+}
+
+// ── lifecycle ────────────────────────────────────────────────────────────────
+
 void Plugin::on_auction_items_received(
   const as2_msgs::msg::AuctionItemArray & msg,
   const std::string & agent_id)
 {
-  // Delegate to base class to populate auction_items_.
   AuctionBehaviorPluginBase::on_auction_items_received(msg, agent_id);
 
-  // Compute bundle_size dynamically: ceil(items / participants).
-  // This guarantees that when each agent claims its fair share the bundle_full
-  // convergence criterion fires, regardless of the value in config.yaml.
-  if (!participants_.empty()) {
-    int n_items = static_cast<int>(auction_items_.size());
-    int n_agents = static_cast<int>(participants_.size());
-    bundle_size_ = std::max(1, (n_items + n_agents - 1) / n_agents);
-    RCLCPP_INFO(
-      rclcpp::get_logger("greedy_sequential"),
-      "Dynamic bundle_size set to %d (%d items / %d agents)",
-      bundle_size_, n_items, n_agents);
+  // Compute this agent's cost for every item.
+  as2_msgs::msg::Bid bid;
+  for (const auto & item : auction_items_) {
+    const std::string & name = item->get_name();
+    const double cost = static_cast<double>(item->evaluate(state_interface_));
+    my_costs_[name] = cost;
+    bid.name.push_back(name);
+    bid.amounts.push_back(cost);
   }
 
-  // Initialize the activity clock here so it is set for BOTH roles:
-  //   - Auctioneer: on_activate() will overwrite it again below (harmless).
-  //   - Participant: skips on_activate(), so this is the only initialization
-  //     point before check_convergence() starts being called.
-  last_activity_time_ = std::chrono::steady_clock::now();
   RCLCPP_INFO(
     rclcpp::get_logger("greedy_sequential"),
-    "Received %zu auction items, activity clock initialized",
-    msg.list.size());
+    "Broadcasting bid for %zu items", bid.name.size());
+
+  // Broadcast to all participants (includes self, filtered by CA gateway).
+  send_bid(bid);
+
+  // Initial assignment based on own data only; updated as peer bids arrive.
+  solve_conflicts();
+
+  // Handle sole-participant case: if there are no peers, convergence is immediate.
+  check_convergence();
 }
 
-void Plugin::on_activate(std::shared_ptr<const GoalT> goal)
+void Plugin::on_activate(std::shared_ptr<const GoalT>/*goal*/)
 {
-  // auction_items_ and participants_ are already set before this call.
-  // Compute and broadcast the first bid to kick off the bidding chain.
-  last_activity_time_ = std::chrono::steady_clock::now();
-  send_bid(compute_bid());
-  last_bid_time_ = std::chrono::steady_clock::now();
+  // Bid already sent in on_auction_items_received — nothing to do here.
 }
 
-void Plugin::on_deactivate()
+void Plugin::on_deactivate() {reset();}
+void Plugin::on_execution_end() {reset();}
+
+void Plugin::reset()
 {
-  reset();
+  my_costs_.clear();
+  received_bids_.clear();
+  received_from_.clear();
+  my_assignment_.clear();
+  auction_items_.clear();
 }
 
-void Plugin::on_execution_end()
-{
-  reset();
-}
-
-void Plugin::configure(rclcpp::Node * node)
-{
-  AuctionBehaviorPluginBase::configure(node);
-  node->declare_parameter("bundle_size", 1);
-  node->get_parameter("bundle_size", bundle_size_);
-  node->declare_parameter("retransmit_timeout_s", retransmit_timeout_s_);
-  node->get_parameter("retransmit_timeout_s", retransmit_timeout_s_);
-  RCLCPP_INFO(
-    rclcpp::get_logger("greedy_sequential"),
-    "Configured with bundle_size=%d, retransmit_timeout_s=%.1f",
-    bundle_size_, retransmit_timeout_s_);
-}
+// ── bidding loop ─────────────────────────────────────────────────────────────
 
 as2_msgs::msg::Bid Plugin::compute_bid()
 {
-  as2_msgs::msg::Bid bid;
-
-  if (static_cast<int>(my_claims_.size()) >= bundle_size_) {
-    return bid;  // bundle full
-  }
-
-  double best_cost = std::numeric_limits<double>::max();
-  std::string best_name;
-
-  for (const auto & item : auction_items_) {
-    RCLCPP_INFO(
-      rclcpp::get_logger("greedy_sequential"),
-      "Evaluating item '%s'", item->to_string().c_str());
-    const std::string & name = item->get_name();
-    if (claimed_by_others_.count(name) || my_claim_names_.count(name)) {
-      continue;
-    }
-    double cost = static_cast<double>(item->evaluate(state_interface_));
-    if (cost < best_cost) {
-      best_cost = cost;
-      best_name = name;
-    }
-  }
-
-  if (!best_name.empty()) {
-    bid.name.push_back(best_name);
-    bid.amounts.push_back(best_cost);
-    my_claim_names_.insert(best_name);
-    my_claims_.emplace_back(best_name, best_cost);
-    RCLCPP_INFO(
-      rclcpp::get_logger("greedy_sequential"),
-      "Claiming task '%s' with cost %.3f", best_name.c_str(), best_cost);
-  }
-
-  return bid;
+  // Bids are sent once in on_auction_items_received, not reactively.
+  // Return empty so the base class on_bid_received() chain is a no-op.
+  return as2_msgs::msg::Bid{};
 }
 
 void Plugin::update(const as2_msgs::msg::Bid & bid_msg, const std::string & agent_id)
 {
-  // A bid just arrived: reset the stability clock. This is the only place
-  // last_activity_time_ is touched; outgoing retransmits must not move it.
-  last_activity_time_ = std::chrono::steady_clock::now();
-  bool won_conflict = false;
+  if (agent_id == namespace_) {return;}
+
+  received_from_.insert(agent_id);
+
+  auto & stored = received_bids_[agent_id];
   for (size_t i = 0; i < bid_msg.name.size(); ++i) {
-    const std::string & name = bid_msg.name[i];
-
-    if (!my_claim_names_.count(name)) {
-      // No conflict — mark as claimed by the other agent.
-      claimed_by_others_.insert(name);
-      RCLCPP_INFO(
-        rclcpp::get_logger("greedy_sequential"),
-        "Task '%s' claimed by '%s'", name.c_str(), agent_id.c_str());
-    } else {
-      // Conflict: simultaneous bids on the same task.
-      // Greedy sequential is first-come-first-serve: resolve by namespace
-      // lexicographic order as a deterministic proxy for sequential turn order
-      // (drone0 → drone1 → … → drone4).
-      if (agent_id < namespace_) {
-        // Other agent goes earlier in the sequence — yield.
-        my_claim_names_.erase(name);
-        my_claims_.erase(
-          std::remove_if(
-            my_claims_.begin(), my_claims_.end(),
-            [&name](const auto & p) {return p.first == name;}),
-          my_claims_.end());
-        claimed_by_others_.insert(name);
-        RCLCPP_INFO(
-          rclcpp::get_logger("greedy_sequential"),
-          "Task '%s' yielded to '%s' (FCFS: they go first in sequence)",
-          name.c_str(), agent_id.c_str());
-      } else {
-        RCLCPP_INFO(
-          rclcpp::get_logger("greedy_sequential"),
-          "Task '%s' contested by '%s' — keeping claim (we go first in sequence)",
-          name.c_str(), agent_id.c_str());
-        won_conflict = true;
-      }
-    }
+    stored[bid_msg.name[i]] =
+      (i < bid_msg.amounts.size()) ? bid_msg.amounts[i] :
+      std::numeric_limits<double>::max();
   }
 
-  // The loser drops its duplicate claim only when it receives our bid.
-  // compute_bid() returns empty when the bundle is full, so on_bid_received()
-  // sends nothing through the normal chain.  If we converge before the
-  // retransmit timeout fires, on_run() is never called again and the loser
-  // keeps a stale duplicate.  Fix: broadcast all current claims immediately
-  // so the conflict is resolved before check_convergence() can return true.
-  if (won_conflict && !my_claims_.empty() && !participants_.empty()) {
-    as2_msgs::msg::Bid full_bid;
-    for (const auto & [n, cost] : my_claims_) {
-      full_bid.name.push_back(n);
-      full_bid.amounts.push_back(cost);
-    }
-    RCLCPP_INFO(
-      rclcpp::get_logger("greedy_sequential"),
-      "Won conflict — retransmitting all %zu claim(s) to resolve",
-      full_bid.name.size());
-    client_.forward_IA_msg<as2_msgs::msg::Bid>(full_bid, "bid", participants_);
-    last_bid_time_ = std::chrono::steady_clock::now();
-    // last_activity_time_ intentionally not updated; see check_convergence().
-  }
+  RCLCPP_INFO(
+    rclcpp::get_logger("greedy_sequential"),
+    "Received bid from '%s' — %zu/%zu peers",
+    agent_id.c_str(), received_from_.size(),
+    participants_.empty() ? 0u : participants_.size() - 1);
+
+  solve_conflicts();
 }
 
 bool Plugin::check_convergence()
 {
-  if (auction_items_.empty() || participants_.empty()) {
-    return false;
-  }
+  if (auction_items_.empty() || participants_.empty()) {return false;}
 
-  // Two ways this drone can be done:
-  //   1. Bundle is full — we claimed our target number of tasks.
-  //   2. All items are accounted for — between our claims and what peers claimed,
-  //      every item in the auction has an owner, so there is nothing left to bid on.
-  //
-  // We use a per-drone criterion rather than a global one (n_drones × bundle_size).
-  // A global target would require knowing every peer's final claim count, but early
-  // convergers call reset() and go silent. A late drone whose claimed_by_others_ is
-  // incomplete from missed messages could then never reach the target and spin forever.
-  const bool bundle_full =
-    (static_cast<int>(my_claim_names_.size()) >= bundle_size_);
-  const bool all_accounted =
-    (claimed_by_others_.size() + my_claim_names_.size() >= auction_items_.size());
-
-  const double idle = std::chrono::duration<double>(
-    std::chrono::steady_clock::now() - last_activity_time_).count();
-
-  if (!bundle_full && !all_accounted) {
-    // Fallback convergence: drones that end up with zero claims (because there
-    // are fewer tasks than drones, or because they yielded all conflicts) have
-    // no items to retransmit, so on_run() is a no-op for them.  Once all
-    // peers with claims converge and call reset(), they stop retransmitting.
-    // If no bid has arrived for twice the retransmit interval, the auction is
-    // almost certainly over and this drone can safely declare convergence.
-    //
-    // last_activity_time_ is initialized in on_auction_items_received() for
-    // both roles, so 'idle' is always measured from a meaningful starting point.
-    if (idle > retransmit_timeout_s_ * 2.0) {
-      RCLCPP_WARN(
-        rclcpp::get_logger("greedy_sequential"),
-        "Convergence timeout: %zu claims, %zu/%zu items accounted, idle=%.2fs "
-        "— declaring convergence (likely missed bids from already-reset peers)",
-        my_claim_names_.size(), claimed_by_others_.size(),
-        auction_items_.size(), idle);
-      return true;
-    }
-    return false;
-  }
-
-  // Even though our local work is done, peers may still be resolving conflicts
-  // and sending retransmits. We wait until no bid has been received for
-  // stability_wait_s_ before declaring convergence.
-  //
-  // last_activity_time_ is only updated when a bid arrives (in update()), never
-  // when we send or retransmit. If we also reset it on outgoing messages, a drone
-  // that keeps retransmitting into silence (all peers already reset) would push the
-  // clock forward indefinitely and never exit this wait.
-  if (idle < stability_wait_s_) {
-    RCLCPP_INFO(
-      rclcpp::get_logger("greedy_sequential"),
-      "My work done (%zu claims, %zu others) — waiting for stability (%.2fs/%.2fs)",
-      my_claim_names_.size(), claimed_by_others_.size(), idle, stability_wait_s_);
-    return false;
+  for (const auto & p : participants_) {
+    const std::string p_id = (!p.empty() && p[0] == '/') ? p.substr(1) : p;
+    if (p_id == namespace_) {continue;}
+    if (!received_from_.count(p_id)) {return false;}
   }
   return true;
 }
 
+// ── result reporting ─────────────────────────────────────────────────────────
+
 Plugin::FeedbackT Plugin::get_feedback()
 {
   FeedbackT feedback;
-  for (const auto & [name, cost] : my_claims_) {
+  for (const auto & [name, cost] : my_assignment_) {
     feedback.asignees.push_back(namespace_);
     feedback.amounts.push_back(cost);
     for (const auto & item : auction_items_) {
@@ -293,7 +194,7 @@ Plugin::FeedbackT Plugin::get_feedback()
 Plugin::ResultT Plugin::get_result()
 {
   ResultT result;
-  for (const auto & [name, cost] : my_claims_) {
+  for (const auto & [name, cost] : my_assignment_) {
     result.winners.push_back(namespace_);
     for (const auto & item : auction_items_) {
       if (item->get_name() == name) {
@@ -303,47 +204,6 @@ Plugin::ResultT Plugin::get_result()
     }
   }
   return result;
-}
-
-void Plugin::on_run()
-{
-  if (my_claims_.empty() || participants_.empty()) {
-    return;
-  }
-  const double elapsed = std::chrono::duration<double>(
-    std::chrono::steady_clock::now() - last_bid_time_).count();
-  if (elapsed <= retransmit_timeout_s_) {
-    return;
-  }
-
-  // Build a single bid containing ALL current claims so that any peer that
-  // missed an earlier individual bid can fill its claimed_by_others_ set and
-  // eventually reach convergence.
-  as2_msgs::msg::Bid full_bid;
-  for (const auto & [name, cost] : my_claims_) {
-    full_bid.name.push_back(name);
-    full_bid.amounts.push_back(cost);
-  }
-  RCLCPP_INFO(
-    rclcpp::get_logger("greedy_sequential"),
-    "Retransmitting all %zu claim(s) to %zu participant(s)",
-    full_bid.name.size(), participants_.size());
-  client_.forward_IA_msg<as2_msgs::msg::Bid>(full_bid, "bid", participants_);
-  last_bid_time_ = std::chrono::steady_clock::now();
-  // last_activity_time_ intentionally not updated — see check_convergence().
-}
-
-void Plugin::reset()
-{
-  claimed_by_others_.clear();
-  my_claim_names_.clear();
-  my_claims_.clear();
-  auction_items_.clear();
-  // Re-initialize timing so the next on_auction_items_received() has a sensible
-  // baseline and the fallback timeout in check_convergence() cannot trigger on a
-  // stale timestamp from the previous auction run.
-  last_activity_time_ = std::chrono::steady_clock::now();
-  last_bid_time_ = std::chrono::steady_clock::now();
 }
 
 }  // namespace greedy_sequential

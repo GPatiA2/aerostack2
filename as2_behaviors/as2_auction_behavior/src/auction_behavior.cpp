@@ -288,6 +288,24 @@ void AuctionBehavior::on_execution_end(const as2_behavior::ExecutionStatus & sta
 {
   auction_plugin_->on_execution_end();
   if (state == as2_behavior::ExecutionStatus::SUCCESS) {
+    // Print a clear summary of the auction result.
+    RCLCPP_INFO(this->get_logger(), "========== AUCTION RESULT ==========");
+    for (size_t i = 0; i < result_.elements.size(); ++i) {
+      const auto & item = result_.elements[i];
+      const std::string & winner = result_.winners[i];
+      std::string features_str;
+      for (size_t j = 0; j < item.feature_names.size(); ++j) {
+        features_str += item.feature_names[j] + "=" +
+          std::to_string(item.features[j]) + " ";
+      }
+      RCLCPP_INFO(
+        this->get_logger(), "  %s -> %s  [%s]",
+        strip_ros_ns(winner).c_str(), item.name.c_str(), features_str.c_str());
+    }
+    if (result_.elements.empty()) {
+      RCLCPP_INFO(this->get_logger(), "  (no items assigned to this drone)");
+    }
+    RCLCPP_INFO(this->get_logger(), "=====================================");
     publish_results_to_kb(result_);
     this->kb_interface_.remove_fact(
       strip_ros_ns(this->get_namespace()), "auctionStatus", "started");
