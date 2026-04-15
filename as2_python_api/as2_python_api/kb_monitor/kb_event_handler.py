@@ -36,12 +36,12 @@ import json
 import threading
 from typing import Callable
 
-import rclpy
 from as2_msgs.msg import MissionUpdate
 from as2_python_api.kb_monitor.kb_params import EventHandlerParams
 from as2_python_api.mission_interpreter.mission import InterpreterStatus
 from geometry_msgs.msg import PoseStamped
 from kb_msgs.srv import Event, Query
+import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.publisher import Publisher
@@ -120,8 +120,7 @@ class _QueryHelper:
 
         if not done.wait(timeout=timeout_sec):
             self._node.get_logger().error(
-                f'KB query timed out after {timeout_sec}s '
-                f'(patterns: {patterns}).'
+                f'KB query timed out after {timeout_sec}s (patterns: {patterns}).'
             )
             return []
 
@@ -363,9 +362,7 @@ class KBMonitorNode(Node):
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _get_or_create_context(
-        self, drone_namespace: str, kb_namespace: str
-    ) -> KBHandlerContext:
+    def _get_or_create_context(self, drone_namespace: str, kb_namespace: str) -> KBHandlerContext:
         """Return a cached :class:`KBHandlerContext`, creating all resources if needed."""
         if drone_namespace in self._drone_state:
             return self._drone_state[drone_namespace]['context']
