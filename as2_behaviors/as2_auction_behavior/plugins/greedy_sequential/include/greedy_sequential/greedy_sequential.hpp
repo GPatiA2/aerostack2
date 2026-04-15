@@ -78,7 +78,7 @@ public:
   void on_deactivate() override;
   void on_execution_end() override;
 
-  // Returns empty — bids are sent once in on_auction_items_received, not reactively.
+  // Returns empty -> bids are sent once in on_auction_items_received, not reactively.
   as2_msgs::msg::Bid compute_bid() override;
 
   // Store the peer's cost vector and re-run conflict resolution.
@@ -97,7 +97,7 @@ protected:
   // Cost vectors received from peers: agent_id → (item_name → cost).
   std::map<std::string, std::map<std::string, double>> received_bids_;
 
-  // Agent IDs (no leading '/') from which a bid has been stored.
+  // Agent IDs from which a bid has been stored.
   std::unordered_set<std::string> received_from_;
 
   // Current assignment for this agent, updated after every new peer bid.

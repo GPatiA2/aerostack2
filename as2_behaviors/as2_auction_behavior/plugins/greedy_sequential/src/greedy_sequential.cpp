@@ -38,6 +38,9 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include <utility>
+#include <unordered_set>
+#include <map>
 
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -49,12 +52,23 @@ namespace greedy_sequential
 
 void Plugin::solve_conflicts()
 {
-  // Merge own costs and every received peer cost vector into a per-item table.
+  // Build a set of active participant names (strip leading '/').
+  std::unordered_set<std::string> active_participants;
+  for (const auto & p : participants_) {
+    active_participants.insert((!p.empty() && p[0] == '/') ? p.substr(1) : p);
+  }
+
+  // Merge own costs and peer cost vectors — only for active participants.
+  // Bids from agents not in participants_ (e.g. stale bids from a failed drone)
+  // are excluded so they cannot steal items as ghost winners.
   std::map<std::string, std::map<std::string, double>> all_costs;
   for (const auto & [item, cost] : my_costs_) {
     all_costs[item][namespace_] = cost;
   }
   for (const auto & [agent, bids] : received_bids_) {
+    if (!active_participants.count(agent)) {
+      continue;
+    }
     for (const auto & [item, cost] : bids) {
       all_costs[item][agent] = cost;
     }
@@ -118,7 +132,7 @@ void Plugin::on_activate(std::shared_ptr<const GoalT>/*goal*/)
   // Bid already sent in on_auction_items_received — nothing to do here.
 }
 
-void Plugin::on_deactivate() {reset();}
+void Plugin::on_deactivate() {}
 void Plugin::on_execution_end() {reset();}
 
 void Plugin::reset()
@@ -130,8 +144,6 @@ void Plugin::reset()
   auction_items_.clear();
 }
 
-// ── bidding loop ─────────────────────────────────────────────────────────────
-
 as2_msgs::msg::Bid Plugin::compute_bid()
 {
   // Bids are sent once in on_auction_items_received, not reactively.
@@ -141,7 +153,9 @@ as2_msgs::msg::Bid Plugin::compute_bid()
 
 void Plugin::update(const as2_msgs::msg::Bid & bid_msg, const std::string & agent_id)
 {
-  if (agent_id == namespace_) {return;}
+  if (agent_id == namespace_) {
+    return;
+  }
 
   received_from_.insert(agent_id);
 
@@ -163,17 +177,22 @@ void Plugin::update(const as2_msgs::msg::Bid & bid_msg, const std::string & agen
 
 bool Plugin::check_convergence()
 {
-  if (auction_items_.empty() || participants_.empty()) {return false;}
+  if (auction_items_.empty() || participants_.empty()) {
+    return false;
+  }
 
   for (const auto & p : participants_) {
     const std::string p_id = (!p.empty() && p[0] == '/') ? p.substr(1) : p;
-    if (p_id == namespace_) {continue;}
-    if (!received_from_.count(p_id)) {return false;}
+    if (p_id == namespace_) {
+      continue;
+    }
+    if (!received_from_.count(p_id)) {
+      return false;
+    }
   }
   return true;
 }
 
-// ── result reporting ─────────────────────────────────────────────────────────
 
 Plugin::FeedbackT Plugin::get_feedback()
 {
