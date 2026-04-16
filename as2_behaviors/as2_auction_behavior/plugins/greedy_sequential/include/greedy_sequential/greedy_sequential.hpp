@@ -89,6 +89,7 @@ public:
 
   FeedbackT get_feedback() override;
   ResultT get_result() override;
+  std::map<std::string, std::string> get_global_assignment() const override;
 
 protected:
   // This agent's cost for each item, computed once in on_auction_items_received.
@@ -102,6 +103,9 @@ protected:
 
   // Current assignment for this agent, updated after every new peer bid.
   std::vector<std::pair<std::string, double>> my_assignment_;
+
+  // Global assignment map: item name → winning agent. Populated during solve_conflicts.
+  std::map<std::string, std::string> global_assignment_;
 
 private:
   // Per-item conflict resolution: for each item, assign to the cheapest agent.

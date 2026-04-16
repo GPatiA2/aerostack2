@@ -167,6 +167,15 @@ public:
   virtual as2_msgs::action::Auction::Feedback get_feedback() = 0;
   virtual as2_msgs::action::Auction::Result get_result() = 0;
 
+  /**
+   * @brief Return the complete assignment map: item name -> assigned agent.
+   *
+   * Called after convergence to query the global auction result from any
+   * participant's perspective. Each plugin must store the full conflict-
+   * resolution outcome during solve_conflicts().
+   */
+  virtual std::map<std::string, std::string> get_global_assignment() const = 0;
+
 protected:
   AuctionBehaviorPluginBase() = default;
   StateInterface state_interface_;

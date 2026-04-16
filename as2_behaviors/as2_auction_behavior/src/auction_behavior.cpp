@@ -321,10 +321,13 @@ void AuctionBehavior::on_execution_end(const as2_behavior::ExecutionStatus & sta
 
 void AuctionBehavior::publish_results_to_kb(const ResultT & result)
 {
+  // Publish facts for ALL items in the global result.
+  // The result now contains complete global assignment (all items + all winners),
+  // allowing any participant to publish the full picture from its own result handle.
   for (size_t i = 0; i < result.elements.size(); ++i) {
     const auto & item = result.elements[i];
-    const std::string & agent_id = result.winners[i];
-    const std::string & id_point = item.name;
+    const std::string & winner_agent = result.winners[i];
+    const std::string & item_name = item.name;
 
     // Find x and y coordinates from the item features
     std::string x_str, y_str;
@@ -336,10 +339,9 @@ void AuctionBehavior::publish_results_to_kb(const ResultT & result)
       }
     }
 
-    kb_interface_.add_fact(id_point, "auctionId", "\"" + auction_id_ + "\"");
-
-    kb_interface_.add_fact(id_point, "xCoord", "\"" + x_str + "\"");
-    kb_interface_.add_fact(id_point, "yCoord", "\"" + y_str + "\"");
-    kb_interface_.add_fact(id_point, "assignedTo", strip_ros_ns(agent_id));
+    kb_interface_.add_fact(item_name, "auctionId", "\"" + auction_id_ + "\"");
+    kb_interface_.add_fact(item_name, "xCoord", "\"" + x_str + "\"");
+    kb_interface_.add_fact(item_name, "yCoord", "\"" + y_str + "\"");
+    kb_interface_.add_fact(item_name, "assignedTo", strip_ros_ns(winner_agent));
   }
 }

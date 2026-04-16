@@ -79,6 +79,7 @@ void Plugin::solve_conflicts()
   // std::map iterates in sorted key order, so item processing is deterministic
   // across all drones — every drone with identical bid data reaches the same result.
   std::vector<std::pair<std::string, double>> result;
+  global_assignment_.clear();
   for (const auto & [item, agent_costs] : all_costs) {
     std::string winner;
     double best = std::numeric_limits<double>::max();
@@ -88,6 +89,7 @@ void Plugin::solve_conflicts()
         best = cost;
       }
     }
+    global_assignment_[item] = winner;  // Store full assignment for get_global_assignment()
     if (winner == namespace_) {
       result.emplace_back(item, best);
     }
@@ -142,6 +144,7 @@ void Plugin::reset()
   received_from_.clear();
   my_assignment_.clear();
   auction_items_.clear();
+  global_assignment_.clear();
 }
 
 as2_msgs::msg::Bid Plugin::compute_bid()
@@ -212,17 +215,22 @@ Plugin::FeedbackT Plugin::get_feedback()
 
 Plugin::ResultT Plugin::get_result()
 {
+  // Return the COMPLETE global auction result — all items and their winners.
+  // This allows any participant to see the full assignment map, not just its own items.
   ResultT result;
-  for (const auto & [name, cost] : my_assignment_) {
-    result.winners.push_back(namespace_);
-    for (const auto & item : auction_items_) {
-      if (item->get_name() == name) {
-        result.elements.push_back(item->get_item());
-        break;
-      }
-    }
+  for (const auto & item_ptr : auction_items_) {
+    const std::string & item_name = item_ptr->get_name();
+    result.elements.push_back(item_ptr->get_item());
+    // Lookup winner from global_assignment_; if not found (shouldn't happen), use empty.
+    auto it = global_assignment_.find(item_name);
+    result.winners.push_back((it != global_assignment_.end()) ? it->second : "");
   }
   return result;
+}
+
+std::map<std::string, std::string> Plugin::get_global_assignment() const
+{
+  return global_assignment_;
 }
 
 }  // namespace greedy_sequential
