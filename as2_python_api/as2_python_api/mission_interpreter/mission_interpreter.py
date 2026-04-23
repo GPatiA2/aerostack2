@@ -265,7 +265,9 @@ class MissionInterpreter:
             self._logger.warning('No mission being executed, pause not allowed')
             return False
         if mid != self._current_mid:
-            self._logger.error('Pause requested for another mission, not the one executing')
+            self._logger.error(
+                f'Pause requested for mission {mid} but currently executing mission '
+                f'{self._current_mid}')
             return False
         return self.current_behavior.pause()
 

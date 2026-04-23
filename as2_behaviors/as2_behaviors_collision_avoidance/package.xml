@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>as2_behaviors_collision_avoidance</name>
+  <version>1.0.0</version>
+  <description>Distributed path-lock collision avoidance behavior for Aerostack2</description>
+  <maintainer email="you@example.com">Your Name</maintainer>
+  <license>BSD-3-Clause</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>rclcpp_components</depend>
+  <depend>pluginlib</depend>
+  <depend>as2_core</depend>  <!-- StateInterface is now in as2_core (Step 0) -->
+  <depend>as2_behavior</depend>
+  <depend>as2_msgs</depend>
+  <depend>as2_ca</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>eigen3_cmake_module</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

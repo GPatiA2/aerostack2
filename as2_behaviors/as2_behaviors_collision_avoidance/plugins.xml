@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<library path="as2_behaviors_collision_avoidance">
+  <class type="pairwise_path_lock_plugin::Plugin"
+         base_class_type="collision_avoidance_base::CollisionAvoidanceBase">
+    <description>
+      Distributed pairwise path-lock plugin.
+      Drones with conflicting intended paths negotiate a mutual-exclusion lock
+      using lexicographic agent-id priority (lower id proceeds first).
+      Event-driven only: no periodic broadcasts.
+    </description>
+  </class>
+</library>

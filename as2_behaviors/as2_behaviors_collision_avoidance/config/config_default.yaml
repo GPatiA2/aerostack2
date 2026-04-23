@@ -1,0 +1,7 @@
+/**:
+  ros__parameters:
+    plugin_name:      "pairwise_path_lock_plugin::Plugin"
+    safety_distance:  1.5    # m — paths closer than this are considered conflicting
+    ca_type_request:  "ca_lock_request"
+    ca_type_grant:    "ca_lock_grant"
+    ca_type_release:  "ca_lock_release"

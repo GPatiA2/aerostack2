@@ -36,6 +36,7 @@ __copyright__ = 'Copyright (c) 2022 Universidad Politécnica de Madrid'
 __license__ = 'BSD-3-Clause'
 
 import abc
+import threading
 from time import sleep
 
 from action_msgs.msg import GoalStatus
@@ -66,6 +67,7 @@ class BehaviorHandler(abc.ABC):
         self.__status = BehaviorStatus.IDLE
         self.__feedback = None
         self.__result = None
+        self.__active_goal = False  # True between goal acceptance and wait_to_result() returning
 
         self.__action_client = ActionClient(node, action_msg, behavior_name)
 
@@ -177,8 +179,8 @@ class BehaviorHandler(abc.ABC):
         self.__goal_handle = send_goal_future.result()
         if not self.__goal_handle.accepted:
             raise self.GoalRejected('Goal Rejected')
-        # Modify status
         self.__status = BehaviorStatus.RUNNING
+        self.__active_goal = True
 
         if wait_result:
             return self.wait_to_result()
@@ -205,8 +207,7 @@ class BehaviorHandler(abc.ABC):
         :return: pause succeed or not
         :rtype: bool
         """
-        # TODO: extend to all behavior status
-        if self.status != BehaviorStatus.RUNNING:
+        if not self.__active_goal:
             return True
         response = self.__pause_client.call(Trigger.Request())
         if response.success:
@@ -261,6 +262,7 @@ class BehaviorHandler(abc.ABC):
 
         # Check action result
         self.__result = result_future.result()
+        self.__active_goal = False
 
         if self.result_status != GoalStatus.STATUS_SUCCEEDED:
             self._node.get_logger().debug(f'Goal failed with status code: {self.result_status}')

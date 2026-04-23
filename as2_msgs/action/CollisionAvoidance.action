@@ -1,0 +1,17 @@
+# Goal
+as2_msgs/PoseStampedWithID[] path
+float32                         safety_distance
+string                          plugin_name
+geometry_msgs/PoseStamped       goal_pose
+float32                         max_speed
+---
+# Result
+bool collision_avoidance_success
+---
+# Feedback
+string   state
+bool     lock_held
+bool     motion_in_progress
+string[] pending_peers
+string[] conflicting_peers
+uint32   deferred_count
