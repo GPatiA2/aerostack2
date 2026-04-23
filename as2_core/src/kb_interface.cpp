@@ -66,7 +66,7 @@ KBInterface::KBInterface(rclcpp::Node * node)
   query_client_ = client_node_->create_client<kb_msgs::srv::Query>("kb/query");
 
   client_executor_.add_node(client_node_);
-  spin_thread_ = std::thread([this]() { client_executor_.spin(); });
+  spin_thread_ = std::thread([this]() {client_executor_.spin();});
 }
 
 KBInterface::~KBInterface()
@@ -83,7 +83,7 @@ void KBInterface::add_fact(
 {
   std_msgs::msg::String msg;
   msg.data = Triple(subj, pred, obj).to_string();
-  RCLCPP_INFO(node_->get_logger(), "Adding fact: %s", msg.data.c_str());
+  // RCLCPP_INFO(node_->get_logger(), "Adding fact: %s", msg.data.c_str());
   add_fact_pub_->publish(msg);
 }
 
