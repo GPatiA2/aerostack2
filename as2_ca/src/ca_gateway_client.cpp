@@ -75,6 +75,40 @@ int CAGatewayClient::get_subscriber_count()
   return local_generic_subscribers_.size();
 }
 
+std::vector<std::string> CAGatewayClient::get_known_peers()
+{
+  std::vector<std::string> peers;
+
+  // Get all nodes in the system
+  auto node_names = parent_->get_node_names();
+
+  for (const auto & node_name : node_names) {
+    // Extract namespace from node name (node name format is "/namespace/node_name")
+    std::string namespace_str = node_name;
+    size_t last_slash = node_name.find_last_of('/');
+    if (last_slash != std::string::npos && last_slash > 0) {
+      namespace_str = node_name.substr(0, last_slash);
+    }
+
+    // Strip leading slash to normalize namespace format (e.g. "/drone0" → "drone0")
+    if (!namespace_str.empty() && namespace_str.front() == '/') {
+      namespace_str = namespace_str.substr(1);
+    }
+
+    // Skip empty namespaces and own agent_id
+    std::string own_id = agent_id_;
+    if (!own_id.empty() && own_id.front() == '/') {own_id = own_id.substr(1);}
+    if (!namespace_str.empty() && namespace_str != own_id) {
+      // Check if this namespace is already in the peers list
+      if (std::find(peers.begin(), peers.end(), namespace_str) == peers.end()) {
+        peers.push_back(namespace_str);
+      }
+    }
+  }
+
+  return peers;
+}
+
 void CAGatewayClient::clear()
 {
   this->local_generic_subscribers_.clear();
