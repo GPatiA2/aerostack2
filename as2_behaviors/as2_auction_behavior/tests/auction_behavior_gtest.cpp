@@ -40,7 +40,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <as2_core/names/topics.hpp>
 
-#include "as2_state_interface/state_interface.hpp"
+#include "as2_core/state_interface.hpp"
 #include "coordinate_item/coordinate_item.hpp"
 
 using std::chrono_literals::operator""ms;

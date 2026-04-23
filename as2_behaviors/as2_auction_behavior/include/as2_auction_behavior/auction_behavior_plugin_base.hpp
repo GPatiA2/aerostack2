@@ -43,7 +43,7 @@
 #include <as2_core/node.hpp>
 #include <as2_behavior/behavior_utils.hpp>
 
-#include "as2_state_interface/state_interface.hpp"
+#include "as2_core/state_interface.hpp"
 #include "as2_ca/ca_gateway_client.hpp"
 #include "as2_auction_behavior/auction_item_plugin_base.hpp"
 #include "as2_msgs/action/auction.hpp"

@@ -40,7 +40,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include "as2_auction_behavior/auction_item_plugin_base.hpp"
-#include "as2_state_interface/state_interface.hpp"
+#include "as2_core/state_interface.hpp"
 #include "greedy_sequential/greedy_sequential.hpp"
 #include "as2_msgs/msg/bid.hpp"
 

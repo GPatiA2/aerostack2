@@ -39,7 +39,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "as2_state_interface/state_interface.hpp"
+#include "as2_core/state_interface.hpp"
 #include "as2_msgs/msg/auction_item.hpp"
 
 namespace as2_auction_behavior

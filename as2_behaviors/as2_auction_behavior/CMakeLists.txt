@@ -22,13 +22,12 @@ set(PROJECT_DEPENDENCIES
   rclcpp
   rclcpp_components
   pluginlib
-  as2_core
+  as2_core          # StateInterface is now in as2_core (Step 0)
   as2_msgs
   as2_behavior
   geometry_msgs
   visualization_msgs
   as2_ca
-  as2_state_interface
 )
 
 # find_package(backward_ros REQUIRED)
