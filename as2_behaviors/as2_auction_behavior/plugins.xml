@@ -13,6 +13,19 @@
     </class>
   </library>
 
+  <library path="cbba_plugin">
+    <class
+      name="cbba::Plugin"
+      type="cbba::Plugin"
+      base_class_type="as2_auction_behavior::AuctionBehaviorPluginBase">
+      <description>
+        Consensus-Based Bundle Algorithm (CBBA) plugin. A decentralized multi-robot
+        task allocation algorithm that allows each agent to claim a bundle of tasks
+        and reach conflict-free assignments through iterative consensus.
+      </description>
+    </class>
+  </library>
+
   <library path="coordinate_item_plugin">
     <class
       name="coordinate_item::Plugin"

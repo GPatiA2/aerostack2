@@ -98,6 +98,7 @@ install(
 
 set(PLUGIN_LIST
   greedy_sequential
+  cbba
   coordinate_item
 )
 
