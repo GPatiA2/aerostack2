@@ -277,6 +277,14 @@ as2_behavior::ExecutionStatus AuctionBehavior::on_run(
     return as2_behavior::ExecutionStatus::RUNNING;
   }
   ResultT res = auction_plugin_->get_result();
+  for (const auto & winner : res.winners) {
+    if (winner.empty()) {
+      RCLCPP_ERROR(
+        this->get_logger(),
+        "Auction converged with unassigned items — check plugin configuration");
+      return as2_behavior::ExecutionStatus::FAILURE;
+    }
+  }
   result_msg->winners = res.winners;
   result_msg->elements = res.elements;
   result_ = res;

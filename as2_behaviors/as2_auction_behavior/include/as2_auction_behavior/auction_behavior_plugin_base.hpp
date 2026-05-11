@@ -92,6 +92,7 @@ public:
     const as2_msgs::msg::AuctionItemArray & msg,
     const std::string & agent_id)
   {
+    auction_items_.clear();
     for (const auto & item_msg : msg.list) {
       auction_items_.push_back(item_plugin_->create(item_msg));
     }
